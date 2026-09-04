@@ -17,6 +17,8 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - L6474 FLAG ISR no longer prints text into the serial JSON stream.
 - PID notebook uses seconds for integration/differentiation, angle wrapping, derivative filtering, output limiting, anti-windup and safety guards.
 - Added a manual keyboard-control notebook that logs observations and control inputs for later system identification and controller design.
+- Added a stepper/rotor dynamic-response notebook that records position, velocity and acceleration and fits the second-order rotor model used by the UCLA/ST instructor manual.
+- Added a detailed analysis of the original EDUKIT `main.c` control architecture.
 
 ## Files
 
@@ -25,6 +27,8 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - `control_comms.py` - Python serial interface.
 - `pendulum_pid_velocity.ipynb` - improved PID experiment notebook.
 - `manual_keyboard_balance.ipynb` - manual keyboard balancing, complete data logger and plotting notebook.
+- `stepper_dynamic_response.ipynb` - position-step experiment, velocity/acceleration estimation and second-order rotor-model identification.
+- `docs/edukit_main_c_analysis.md` - detailed explanation of PID/LQR layers, `ACCEL_CONTROL`, `GoTo()`, and the L6474 motion layer in the original EDUKIT firmware.
 - `requirements.txt` - Python dependencies.
 
 ## Arduino dependencies
@@ -43,7 +47,7 @@ The pin assignment follows the STEVAL-EDUKIT01 / NUCLEO-F401RE setup used by the
 python -m pip install -r requirements.txt
 ```
 
-The manual keyboard notebook uses `pynput`, and experiment data processing uses `pandas` and `matplotlib`.
+The notebooks use `pyserial`, `pandas`, `matplotlib`, `scipy`, and `pynput` where keyboard input is required.
 
 ## Manual keyboard balancing and data collection
 
@@ -62,23 +66,7 @@ Keyboard controls:
 
 The initial manual command is intentionally conservative (`250 pps`). Change `CONTROL_SIGN` in the notebook if the physical left/right direction is opposite to what you expect.
 
-During the experiment the notebook continuously records the complete observation returned by the firmware plus the control input and host-side timing/key state. Logged columns include:
-
-- host Unix time and host elapsed time
-- MCU timestamp and MCU elapsed time
-- firmware response status and termination flag
-- pendulum angle
-- pendulum error relative to upright (`180 deg`)
-- estimated pendulum angular velocity
-- rotor angle relative to the software home position
-- estimated rotor angular velocity
-- observed signed stepper speed in pps
-- raw L6474 status register value
-- command ID sent
-- commanded signed velocity in pps
-- current manual speed setting
-- left/right key states
-- emergency-stop state
+During the experiment the notebook continuously records the complete observation returned by the firmware plus the control input and host-side timing/key state. Logged columns include host and MCU timing, pendulum angle/error/velocity, rotor angle/velocity, observed stepper speed, raw L6474 status, firmware status, command velocity and keyboard state.
 
 At the end of an experiment the notebook writes:
 
@@ -87,9 +75,33 @@ data/manual_balance_YYYYMMDD_HHMMSS.csv
 data/manual_balance_YYYYMMDD_HHMMSS.png
 ```
 
-The generated figure plots pendulum angle/error/velocity, rotor angle/velocity, commanded and observed motor speed, and driver/firmware status over time. A final table also shows only the time points where the manual control input changed.
+## Stepper / rotor dynamic-response identification
 
-This dataset is intended to make it easier to compare human balancing behavior with PID/LQR/RL control, inspect latency and motor response, and estimate useful system dynamics from real hardware measurements.
+Open `stepper_dynamic_response.ipynb` with the pendulum removed or safely hanging down and the rotor centered.
+
+The notebook applies repeated small rotor position steps and records:
+
+- commanded rotor target angle `phi_RC`
+- reported rotor angle / internal step position `phi`
+- L6474 reported step rate in pps
+- pendulum encoder angle
+- estimated rotor angular velocity
+- estimated rotor angular acceleration
+- firmware and L6474 status values
+
+After acquisition it fits the UCLA/ST manual's small-signal rotor model:
+
+```text
+                     a
+G_rotor(s) = ------------------
+              s^2 + b s + c
+```
+
+and also reports the equivalent natural frequency, damping ratio, DC gain, RMSE and correlation. A Bode plot of the identified model is generated.
+
+Important measurement limitation: the current Arduino firmware obtains rotor position from the L6474/step-count state. This is not an independent physical rotor-shaft encoder, so lost steps cannot be detected directly from the reported rotor angle. Use conservative motion first and treat audible stalls or `드드드득` as invalid identification data.
+
+The instructor manual gives example profiles with 3000 step/s^2 acceleration/deceleration and compares High (`Max=1000, Min=300`), Medium (`Max=1000, Min=200`) and Low (`Max=200, Min=200`) speed configurations. This repository's current firmware profile differs, so the notebook is intended to identify coefficients for the actual hardware/configuration rather than reproduce the manual coefficients exactly.
 
 ## PID workflow
 
@@ -100,6 +112,27 @@ This dataset is intended to make it easier to compare human balancing behavior w
 5. Run the low-speed direction test first. If positive command drives the rotor in the wrong control direction, change `CONTROL_SIGN`.
 6. Manually place the pendulum close to upright (`180 deg`) before starting the PID cell.
 7. Start with conservative gains and tune on the real mechanism.
+
+## Original EDUKIT `main.c`: controller hierarchy
+
+See [`docs/edukit_main_c_analysis.md`](docs/edukit_main_c_analysis.md) for the full code-level analysis.
+
+The short version is:
+
+```text
+Pendulum PID / LQR ----+
+                       +--> control output --> motor actuation
+Rotor-position PID ----+
+```
+
+There is **not** another hidden mechanical position PID inside the L6474 motor layer.
+
+The original source has two important actuation modes:
+
+- `ACCEL_CONTROL == 1` (defined as the default in the inspected `main.c`): the controller output is passed to `apply_acceleration()`, integrated into target velocity, and converted to STEP PWM period. Direction and PWM timing are explicitly managed by firmware.
+- `ACCEL_CONTROL == 0`: the firmware calls `BSP_MotorControl_GoTo()`. In this mode the L6474/BSP generates a deterministic target-position trajectory constrained by minimum speed, maximum speed, acceleration and deceleration. This trajectory generator is not a PID.
+
+The second-order `G_rotor(s)` in the instructor manual is therefore an **experimentally identified equivalent plant model** of the motor-controller/rotor response. It should not be interpreted as proof of an internal second-order PID loop.
 
 ## Command protocol
 
@@ -126,6 +159,13 @@ Observation array:
 
 ## References and upstream projects
 
+### Instructor manual / dynamic motor model
+
+- **The Integrated Rotary Inverted Pendulum — An Open and Configurable System With Digital Motor Controller Technology**, Prof. William J. Kaiser (UCLA), 129-page instructor manual: https://www.st.com/content/dam/AME/2019/Educational%20Curriculums/motor-control/Introduction_to_Integrated_Rotary_Inverted_Pendulum_v2.pdf
+- ST Motor Control and Control Systems curriculum page hosting the manual: https://www.st.com/content/st_com/en/campaigns/educationalplatforms/motorcontrol-edu.html
+
+Section 4 of the manual describes the rotor/motor-controller dynamic response, the effect of maximum/minimum speed and acceleration/deceleration, and the identified second-order `G_rotor(s)` model used by `stepper_dynamic_response.ipynb`.
+
 ### This project and source-code lineage
 
 - This repository: https://github.com/jooyongsim/Pendulum_control
@@ -140,7 +180,7 @@ Observation array:
 The ST motor-control curriculum credits **Prof. William J. Kaiser, UCLA** for the control-systems educational material associated with this rotary inverted pendulum platform.
 
 - UCLA/EDUKIT project source by William J. Kaiser: https://github.com/wjkaiser/Edukit_Rotary_Inverted_Pendulum_Project
-- Example one-motor motion-control source used for comparison: https://github.com/wjkaiser/Edukit_Rotary_Inverted_Pendulum_Project/blob/main/Edukit_Rotary_Inverted_Pendulum_Project/Projects/Multi/Examples/MotionControl/IHM01A1_ExampleFor1Motor/Src/main.c
+- Example one-motor motion-control source analyzed in this repository: https://github.com/wjkaiser/Edukit_Rotary_Inverted_Pendulum_Project/blob/main/Edukit_Rotary_Inverted_Pendulum_Project/Projects/Multi/Examples/MotionControl/IHM01A1_ExampleFor1Motor/Src/main.c
 - ST Motor Control and Control Systems educational curriculum / instructor material: https://www.st.com/content/st_com/en/campaigns/educationalplatforms/motorcontrol-edu.html
 
 ### DigiKey tutorials
