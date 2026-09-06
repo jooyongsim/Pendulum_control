@@ -72,8 +72,8 @@ The positive real pole \(+\sqrt{62.6170}=+7.9131\,\mathrm{s^{-1}}\) is the open-
 - [`DERIVATION.md`](DERIVATION.md): derivation from torque/inertia through suspended and inverted linear models.
 - [`01_suspended_acceleration_response.ipynb`](01_suspended_acceleration_response.ipynb): open-loop suspended response to a 1 s acceleration pulse.
 - [`02_inverted_pid_control.ipynb`](02_inverted_pid_control.ipynb): PID stabilization of the inverted linearized model.
-- [`figures/suspended_acceleration_pulse_response.png`](figures/suspended_acceleration_pulse_response.png)
-- [`figures/inverted_pid_response.png`](figures/inverted_pid_response.png)
+- [`figures/suspended_acceleration_pulse_response.svg`](figures/suspended_acceleration_pulse_response.svg)
+- [`figures/inverted_pid_response.svg`](figures/inverted_pid_response.svg)
 
 ## Stepper-motor interpretation
 
