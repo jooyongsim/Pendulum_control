@@ -28,6 +28,10 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - `pendulum_pid_velocity.ipynb` - improved PID experiment notebook.
 - `manual_keyboard_balance.ipynb` - manual keyboard balancing, complete data logger and plotting notebook.
 - `stepper_dynamic_response.ipynb` - position-step experiment, velocity/acceleration estimation and second-order rotor-model identification.
+- `docs/simple_pendulum_free_response.md` - fixed-pivot free-response derivation: linear/nonlinear and undamped/damped cases, including time-domain and Laplace solutions.
+- `simple_pendulum_simulation.ipynb` - analytical-versus-numerical simulation of the fixed-pivot pendulum models.
+- `encoder_release_experiment.ipynb` - non-live encoder acquisition, timestamped CSV logging, plotting, and basic period/damping estimation for a hand-release test.
+- `encoder_live_monitor.py` - live encoder plot and CSV logger for the same hand-release test.
 - `docs/edukit_main_c_analysis.md` - detailed explanation of PID/LQR layers, `ACCEL_CONTROL`, `GoTo()`, and the L6474 motion layer in the original EDUKIT firmware.
 - `requirements.txt` - Python dependencies.
 
@@ -112,6 +116,18 @@ The instructor manual gives example profiles with 3000 step/s^2 acceleration/dec
 5. Run the low-speed direction test first. If positive command drives the rotor in the wrong control direction, change `CONTROL_SIGN`.
 6. Manually place the pendulum close to upright (`180 deg`) before starting the PID cell.
 7. Start with conservative gains and tune on the real mechanism.
+
+## Fixed-pivot hand-release experiment
+
+For an experiment with no rotary motion, start with [`docs/simple_pendulum_free_response.md`](docs/simple_pendulum_free_response.md), then run `simple_pendulum_simulation.ipynb`.
+
+To record the real encoder after lifting and releasing the pendulum by hand, use `encoder_release_experiment.ipynb`. It sends an initial hard-stop and then query commands only; it does not command motor motion. If a live display is required, run:
+
+```bash
+python encoder_live_monitor.py --duration 20 --countdown 3
+```
+
+Both acquisition programs calibrate the downward angle, retain raw and zero-referenced angles, save host and MCU timestamps, and write a timestamped CSV under `data/`.
 
 ## Original EDUKIT `main.c`: controller hierarchy
 
