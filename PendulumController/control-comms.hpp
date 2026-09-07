@@ -49,8 +49,7 @@ class ControlComms {
   StatusCode receive_action(int *command, float *action_out) {
     if (stream_ == nullptr || stream_->available() <= 0) return RX_EMPTY;
 
-    constexpr size_t capacity = JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(num_actions) + 64;
-    StaticJsonDocument<capacity> doc;
+    JsonDocument doc;
     DeserializationError err = deserializeJson(doc, *stream_);
 
     if (err) {
@@ -63,7 +62,7 @@ class ControlComms {
       return ERROR;
     }
 
-    if (!doc.containsKey("command") || !doc.containsKey("action")) return ERROR;
+    if (!doc["command"].is<int>() || !doc["action"].is<JsonArray>()) return ERROR;
     JsonArray vals = doc["action"].as<JsonArray>();
     if (vals.size() != num_actions) return ERROR;
 

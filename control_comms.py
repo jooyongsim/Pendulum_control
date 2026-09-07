@@ -8,6 +8,34 @@ import serial
 import serial.tools.list_ports
 
 
+# The Nucleo re-enumerates on a different COM port fairly often, so the port is
+# found by its ST-Link descriptor rather than hard-coded.
+STLINK_HINTS = ("stlink", "st-link", "stmicroelectronics")
+
+
+def find_board_port(preferred: Optional[str] = None) -> str:
+    """Return `preferred` if that port exists, otherwise the ST-Link COM port."""
+    ports = list(serial.tools.list_ports.comports())
+    present = [p.device for p in ports]
+    if preferred and preferred in present:
+        return preferred
+
+    matches = [p.device for p in ports
+               if any(h in f"{p.description} {p.hwid}".lower() for h in STLINK_HINTS)]
+    if len(matches) == 1:
+        if preferred:
+            print(f"{preferred} is not present; using {matches[0]} instead.")
+        else:
+            print(f"Found the board on {matches[0]}.")
+        return matches[0]
+    if not matches:
+        raise RuntimeError(
+            f"No ST-Link serial port found. Ports present: {present or 'none'}. "
+            "Check the USB cable, or set the port explicitly."
+        )
+    raise RuntimeError(f"Several ST-Link ports found ({matches}); set the port explicitly.")
+
+
 class StatusCode(Enum):
     OK = 0
     ERROR = 1

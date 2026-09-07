@@ -49,13 +49,24 @@ const int STP_STEPS_PER_ROTATION = 200;
 
 // EDUKIT-oriented L6474 settings. Verify motor current rating before use.
 static const unsigned int MOTOR_TVAL_MA = 800;
-static const unsigned int MOTOR_MAX_SPEED_PPS = 2000;
-static const unsigned int MOTOR_MIN_SPEED_PPS = 30;
-static const unsigned int MOTOR_ACCEL_PPS2 = 6000;
-static const unsigned int MOTOR_DECEL_PPS2 = 6000;
+// static const unsigned int MOTOR_MAX_SPEED_PPS = 2000;
+// static const unsigned int MOTOR_MIN_SPEED_PPS = 30;
+// static const unsigned int MOTOR_ACCEL_PPS2 = 6000;
+// static const unsigned int MOTOR_DECEL_PPS2 = 6000;
+
+static const unsigned int MOTOR_MAX_SPEED_PPS = 1000;
+static const unsigned int MOTOR_MIN_SPEED_PPS = 200;
+static const unsigned int MOTOR_ACCEL_PPS2 = 2000;
+static const unsigned int MOTOR_DECEL_PPS2 = 2000;
 
 // Mechanical safety. Home should be set near the center of rotor travel.
 static const float ROTOR_SOFT_LIMIT_DEG = 90.0f;
+
+// Set to true to enforce ROTOR_SOFT_LIMIT_DEG. With it false the rotor turns
+// without limit: CMD_MOVE_BY / CMD_MOVE_TO are no longer clipped, velocity
+// commands are never refused, and the loop() guard never latches. The encoder
+// cable and any mechanical stop are then the only remaining protection.
+static const bool ROTOR_LIMIT_ENABLED = false;
 
 L6474_init_t stepper_config = {
   MOTOR_ACCEL_PPS2,
@@ -150,6 +161,7 @@ void service_driver_flag() {
 }
 
 bool rotor_limit_exceeded_for_command(float signed_pps) {
+  if (!ROTOR_LIMIT_ENABLED) return false;
   const float rotor = get_rotor_angle_signed();
   return (rotor >= ROTOR_SOFT_LIMIT_DEG && signed_pps > 0.0f) ||
          (rotor <= -ROTOR_SOFT_LIMIT_DEG && signed_pps < 0.0f);
@@ -199,8 +211,10 @@ void set_signed_velocity(float signed_pps) {
 
 void move_stepper_to(float deg) {
   if (safety_latched || stepper->get_device_state() != INACTIVE) return;
-  if (deg > ROTOR_SOFT_LIMIT_DEG) deg = ROTOR_SOFT_LIMIT_DEG;
-  if (deg < -ROTOR_SOFT_LIMIT_DEG) deg = -ROTOR_SOFT_LIMIT_DEG;
+  if (ROTOR_LIMIT_ENABLED) {
+    if (deg > ROTOR_SOFT_LIMIT_DEG) deg = ROTOR_SOFT_LIMIT_DEG;
+    if (deg < -ROTOR_SOFT_LIMIT_DEG) deg = -ROTOR_SOFT_LIMIT_DEG;
+  }
   const long steps = lroundf(deg * STP_STEPS_PER_ROTATION * div_per_step / 360.0f);
   stepper->go_to(steps);
 }
@@ -208,10 +222,12 @@ void move_stepper_to(float deg) {
 void move_stepper_by(float deg) {
   if (safety_latched || stepper->get_device_state() != INACTIVE) return;
 
-  const float current = get_rotor_angle_signed();
-  float target = current + deg;
-  if (target > ROTOR_SOFT_LIMIT_DEG) deg = ROTOR_SOFT_LIMIT_DEG - current;
-  if (target < -ROTOR_SOFT_LIMIT_DEG) deg = -ROTOR_SOFT_LIMIT_DEG - current;
+  if (ROTOR_LIMIT_ENABLED) {
+    const float current = get_rotor_angle_signed();
+    const float target = current + deg;
+    if (target > ROTOR_SOFT_LIMIT_DEG) deg = ROTOR_SOFT_LIMIT_DEG - current;
+    if (target < -ROTOR_SOFT_LIMIT_DEG) deg = -ROTOR_SOFT_LIMIT_DEG - current;
+  }
 
   long steps = lroundf(deg * STP_STEPS_PER_ROTATION * div_per_step / 360.0f);
   if (steps == 0) return;
@@ -243,8 +259,8 @@ void set_step_mode(int mode) {
 
 int host_status() {
   if (safety_latched) {
-    const float rotor = get_rotor_angle_signed();
-    if (fabs(rotor) >= ROTOR_SOFT_LIMIT_DEG) return STATUS_LIMIT;
+    if (ROTOR_LIMIT_ENABLED &&
+        fabs(get_rotor_angle_signed()) >= ROTOR_SOFT_LIMIT_DEG) return STATUS_LIMIT;
     return STATUS_DRIVER_FAULT;
   }
   return stepper->get_device_state() == INACTIVE ? STATUS_OK : STATUS_MOVING;
@@ -293,7 +309,8 @@ void loop() {
   service_driver_flag();
 
   // Independent hardware-side rotor guard, even if the host stops responding.
-  if (!safety_latched && fabs(get_rotor_angle_signed()) > ROTOR_SOFT_LIMIT_DEG) {
+  if (ROTOR_LIMIT_ENABLED && !safety_latched &&
+      fabs(get_rotor_angle_signed()) > ROTOR_SOFT_LIMIT_DEG) {
     safety_latched = true;
     hard_stop_motor();
   }
