@@ -29,6 +29,7 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - `manual_keyboard_balance.ipynb` - manual keyboard balancing, complete data logger and plotting notebook.
 - `stepper_dynamic_response.ipynb` - position-step experiment, velocity/acceleration estimation and second-order rotor-model identification.
 - `docs/simple_pendulum_free_response.md` - fixed-pivot free-response derivation: linear/nonlinear and undamped/damped cases, including time-domain and Laplace solutions.
+- `docs/linear_poles_and_pid_response.md` - exponential trial solution, natural frequency/damping ratio, pole stability, and PID closed-loop modal response.
 - `simple_pendulum_simulation.ipynb` - analytical-versus-numerical simulation of the fixed-pivot pendulum models.
 - `encoder_release_experiment.ipynb` - non-live encoder acquisition, timestamped CSV logging, plotting, and basic period/damping estimation for a hand-release test.
 - `encoder_live_monitor.py` - live encoder plot and CSV logger for the same hand-release test.
