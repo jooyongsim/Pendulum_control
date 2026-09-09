@@ -26,6 +26,45 @@ The correct selection for this repository is:
 
 Do not select `Nucleo-144`, `Nucleo-32`, or another F4 part number merely because it is also an STM32 board.
 
+## If STM32 does not appear in Boards Manager
+
+If the STM32 board package does not appear in **Boards Manager**, the most common cause is that the STM32 Boards Manager URL has not been added, or an old URL is still being used.
+
+For Arduino IDE 2.x:
+
+1. Open **File → Preferences**.
+2. Add the following URL to **Additional Boards Manager URLs**:
+
+```text
+https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
+```
+
+3. Click **OK** and restart Arduino IDE.
+4. Open **Tools → Board → Boards Manager...**.
+5. Search for:
+
+```text
+STM32
+```
+
+6. Install:
+
+```text
+STM32 MCU based boards
+by STMicroelectronics
+```
+
+If STM32 still does not appear:
+
+- Make sure there are no spaces before or after the Boards Manager URL.
+- Remove or replace obsolete STM32 package-index URLs if one was configured previously.
+- Check whether a company, school, proxy, VPN, firewall, or security product is blocking access to `github.com` or `raw.githubusercontent.com`.
+- Clear the Boards Manager search field completely and search for `STM32` again.
+- Restart Arduino IDE after changing **Additional Boards Manager URLs**.
+- Prefer a current Arduino IDE 2.x release.
+
+After the STM32 core is installed, select **Nucleo-64 → Nucleo F401RE** before compiling or uploading this project's firmware.
+
 ## Step 1 — open the board selector
 
 Click the board selector at the top of Arduino IDE. When no board is selected it displays **Select Board**.
@@ -125,7 +164,7 @@ BAUD_RATE = 500000
 
 ### `Nucleo F401RE` does not appear
 
-The STM32 MCU Arduino board package is probably missing or not selected. Install/update the STMicroelectronics STM32 core in Boards Manager.
+See **[If STM32 does not appear in Boards Manager](#if-stm32-does-not-appear-in-boards-manager)** above. Install or update the STMicroelectronics STM32 core first, then select `Nucleo-64` and `Nucleo F401RE`.
 
 ### Upload succeeds but Python cannot open the COM port
 
