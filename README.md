@@ -2,6 +2,8 @@
 
 Improved controller and experiment notebooks for the STMicroelectronics STEVAL-EDUKIT01 rotary inverted pendulum.
 
+> **Arduino IDE / STM32 setup:** See the **[NUCLEO-F401RE Arduino IDE setup guide](docs/arduino_board_setup/README.md)** for board selection, upload settings, serial-port setup, required libraries, and troubleshooting when STM32 does not appear in Boards Manager.
+
 This repository is based on the serial-control and simple PID examples in `jooyongsim/inverted_pendulum`, the original EDUKIT/UCLA teaching project, STMicroelectronics reference firmware and motor-driver libraries, and Shawn Hymel's DigiKey inverted-pendulum examples.
 
 ## What changed
@@ -28,6 +30,7 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - `pendulum_pid_velocity.ipynb` - improved PID experiment notebook.
 - `manual_keyboard_balance.ipynb` - manual keyboard balancing, complete data logger and plotting notebook.
 - `stepper_dynamic_response.ipynb` - position-step experiment, velocity/acceleration estimation and second-order rotor-model identification.
+- `docs/arduino_board_setup/README.md` - **Arduino IDE / STM32 / NUCLEO-F401RE board setup and troubleshooting guide.**
 - `docs/simple_pendulum_free_response.md` - fixed-pivot free-response derivation: linear/nonlinear and undamped/damped cases, including time-domain and Laplace solutions.
 - `docs/linear_poles_and_pid_response.md` - exponential trial solution, natural frequency/damping ratio, pole stability, and PID closed-loop modal response.
 - `simple_pendulum_simulation.ipynb` - analytical-versus-numerical simulation of the fixed-pivot pendulum models.
@@ -38,6 +41,8 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 
 ## Arduino dependencies
 
+**Before compiling or uploading, follow the [Arduino IDE setup guide for NUCLEO-F401RE](docs/arduino_board_setup/README.md).** It includes the STM32 Boards Manager URL and fixes for cases where STM32 boards do not appear in Arduino IDE.
+
 Install libraries compatible with your STM32 Arduino core:
 
 - `STM32duino X-NUCLEO-IHM01A1` (L6474)
@@ -45,45 +50,6 @@ Install libraries compatible with your STM32 Arduino core:
 - `ArduinoJson` v6
 
 The pin assignment follows the STEVAL-EDUKIT01 / NUCLEO-F401RE setup used by the source projects.
-
-### STM32 board does not appear in Arduino IDE Boards Manager
-
-If the STM32 board package does not appear in **Boards Manager**, the most common cause is that the STM32 Boards Manager URL has not been added, or an old URL is still being used.
-
-For Arduino IDE 2.x:
-
-1. Open **File -> Preferences**.
-2. Add the following URL to **Additional Boards Manager URLs**:
-
-```text
-https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
-```
-
-3. Click **OK** and restart Arduino IDE.
-4. Open **Tools -> Board -> Boards Manager**.
-5. Search for:
-
-```text
-STM32
-```
-
-6. Install:
-
-```text
-STM32 MCU based boards
-by STMicroelectronics
-```
-
-If it still does not appear, check the following:
-
-- Make sure there are no spaces before or after the Boards Manager URL.
-- Remove or replace obsolete STM32 package-index URLs if you previously configured one.
-- Check whether a company, school, proxy, VPN, firewall, or security product is blocking access to `github.com` or `raw.githubusercontent.com`.
-- Clear the Boards Manager search box completely and search for `STM32` again.
-- Restart Arduino IDE after changing **Additional Boards Manager URLs**.
-- Prefer a current Arduino IDE 2.x release.
-
-This project uses the **NUCLEO-F401RE** included with the STEVAL-EDUKIT01, so after installing the STM32 core select the appropriate Nucleo F401RE board configuration before compiling and uploading `PendulumController/PendulumController.ino`.
 
 ## Python dependencies
 
