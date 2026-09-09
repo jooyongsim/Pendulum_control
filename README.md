@@ -46,6 +46,45 @@ Install libraries compatible with your STM32 Arduino core:
 
 The pin assignment follows the STEVAL-EDUKIT01 / NUCLEO-F401RE setup used by the source projects.
 
+### STM32 board does not appear in Arduino IDE Boards Manager
+
+If the STM32 board package does not appear in **Boards Manager**, the most common cause is that the STM32 Boards Manager URL has not been added, or an old URL is still being used.
+
+For Arduino IDE 2.x:
+
+1. Open **File -> Preferences**.
+2. Add the following URL to **Additional Boards Manager URLs**:
+
+```text
+https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
+```
+
+3. Click **OK** and restart Arduino IDE.
+4. Open **Tools -> Board -> Boards Manager**.
+5. Search for:
+
+```text
+STM32
+```
+
+6. Install:
+
+```text
+STM32 MCU based boards
+by STMicroelectronics
+```
+
+If it still does not appear, check the following:
+
+- Make sure there are no spaces before or after the Boards Manager URL.
+- Remove or replace obsolete STM32 package-index URLs if you previously configured one.
+- Check whether a company, school, proxy, VPN, firewall, or security product is blocking access to `github.com` or `raw.githubusercontent.com`.
+- Clear the Boards Manager search box completely and search for `STM32` again.
+- Restart Arduino IDE after changing **Additional Boards Manager URLs**.
+- Prefer a current Arduino IDE 2.x release.
+
+This project uses the **NUCLEO-F401RE** included with the STEVAL-EDUKIT01, so after installing the STM32 core select the appropriate Nucleo F401RE board configuration before compiling and uploading `PendulumController/PendulumController.ino`.
+
 ## Python dependencies
 
 ```bash
