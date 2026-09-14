@@ -82,6 +82,7 @@ L6474 *stepper = nullptr;
 ControlComms ctrl;
 
 volatile bool driver_flag_pending = false;
+volatile bool driver_spi_error = false;
 unsigned int last_l6474_status = 0;
 bool safety_latched = false;
 bool timeout_latched = false;
@@ -123,6 +124,17 @@ void zero_velocity() {
   target_velocity_pps = 0.0f;
   accel_command_pps2 = 0.0f;
   hard_stop_motor();
+}
+
+// The L6474 library's default error handler calls exit(), which halts the MCU:
+// the board then stops answering the host completely, which looks exactly like
+// a dead serial link. It fires when an SPI transfer fails, and SPI transfers can
+// be preempted by the step-clock ISR once the motor is running. Latch instead so
+// the fault stays reportable and recoverable.
+void driverErrorHandler(uint16_t error) {
+  // Keep this minimal: no SPI, no printing -- it may run from an error context.
+  driver_spi_error = true;
+  safety_latched = true;
 }
 
 void service_driver_flag() {
@@ -256,6 +268,7 @@ void setup() {
     }
   }
 
+  stepper->attach_error_handler(&driverErrorHandler);
   stepper->attach_flag_irq(&stepperISR);
   stepper->enable_flag_irq();
   stepper->set_home();

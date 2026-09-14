@@ -21,6 +21,8 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - Added a manual keyboard-control notebook that logs observations and control inputs for later system identification and controller design.
 - Added a stepper/rotor dynamic-response notebook that records position, velocity and acceleration and fits the second-order rotor model used by the UCLA/ST instructor manual.
 - Added a detailed analysis of the original EDUKIT `main.c` control architecture.
+- Added free-swing model identification: the pendulum's natural frequency and friction are measured from `encoder_logging_60s.ipynb` logs and validated by forward simulation.
+- Added a controller simulator that uses those measured parameters, so balancing designs can be checked against sample rate, encoder resolution, actuator limits and rotor travel before going to hardware.
 
 ## Files
 
@@ -33,6 +35,10 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - `docs/arduino_board_setup/README.md` - **Arduino IDE / STM32 / NUCLEO-F401RE board setup and troubleshooting guide.**
 - `docs/simple_pendulum_free_response.md` - fixed-pivot free-response derivation: linear/nonlinear and undamped/damped cases, including time-domain and Laplace solutions.
 - `docs/linear_poles_and_pid_response.md` - exponential trial solution, natural frequency/damping ratio, pole stability, and PID closed-loop modal response.
+- `docs/pendulum_model_identification.md` - **measured** pendulum model: natural frequency, effective length, viscous/Coulomb friction split, forward-simulation validation, and the linearised model used for control design.
+- `pendulum_model_id.py` - system-identification script behind that document; reads `data/encoder_log_*.csv` and writes `pendulum_model_id.png` / `pendulum_model_validation.png`.
+- `docs/pendulum_ivp_and_simulator.md` - the identified model in both standard (wn, zeta) and physical (c, J, g) form, worked initial-value problems about the hanging and upright equilibria, and the simulator guide.
+- `pendulum_sim.py` - controller simulator built on the identified plant: PID and state feedback, 2- and 4-state pole placement, with control rate, encoder quantisation, actuator saturation, loop delay and the rotor travel limit.
 - `simple_pendulum_simulation.ipynb` - analytical-versus-numerical simulation of the fixed-pivot pendulum models.
 - `encoder_release_experiment.ipynb` - non-live encoder acquisition, timestamped CSV logging, plotting, and basic period/damping estimation for a hand-release test.
 - `encoder_live_monitor.py` - live encoder plot and CSV logger for the same hand-release test.

@@ -1,0 +1,2 @@
+host_t_s,mcu_timestamp_ms,status,terminated,accel_cmd_pps2,pendulum_deg,rotor_deg,measured_pps,target_pps,firmware_accel_pps2,l6474_status,host_command_age_ms
+0.0007387000368908048,374561,0,False,2500.0,0.3,1.35,0.0,0.0,2500.0,65042.0,0.0

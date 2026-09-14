@@ -54,10 +54,10 @@ static const unsigned int MOTOR_TVAL_MA = 800;
 // static const unsigned int MOTOR_ACCEL_PPS2 = 6000;
 // static const unsigned int MOTOR_DECEL_PPS2 = 6000;
 
-static const unsigned int MOTOR_MAX_SPEED_PPS = 1000;
-static const unsigned int MOTOR_MIN_SPEED_PPS = 200;
-static const unsigned int MOTOR_ACCEL_PPS2 = 2000;
-static const unsigned int MOTOR_DECEL_PPS2 = 2000;
+static const unsigned int MOTOR_MAX_SPEED_PPS = 4000;
+static const unsigned int MOTOR_MIN_SPEED_PPS = 30;
+static const unsigned int MOTOR_ACCEL_PPS2 = 10000;
+static const unsigned int MOTOR_DECEL_PPS2 = 10000;
 
 // Mechanical safety. Home should be set near the center of rotor travel.
 static const float ROTOR_SOFT_LIMIT_DEG = 90.0f;
@@ -101,6 +101,7 @@ ControlComms ctrl;
 unsigned int div_per_step = 16;
 
 volatile bool driver_flag_pending = false;
+volatile bool driver_spi_error = false;
 unsigned int last_l6474_status = 0;
 bool safety_latched = false;
 int commanded_direction = 0;  // -1 BWD, 0 stopped, +1 FWD
@@ -138,6 +139,17 @@ float get_signed_speed() {
 void hard_stop_motor() {
   stepper->hard_stop();
   commanded_direction = 0;
+}
+
+// The L6474 library's default error handler calls exit(), which halts the MCU:
+// the board then stops answering the host completely, which looks exactly like
+// a dead serial link. It fires when an SPI transfer fails, and SPI transfers can
+// be preempted by the step-clock ISR once the motor is running. Latch instead so
+// the fault stays reportable and recoverable.
+void driverErrorHandler(uint16_t error) {
+  // Keep this minimal: no SPI, no printing -- it may run from an error context.
+  driver_spi_error = true;
+  safety_latched = true;
 }
 
 void service_driver_flag() {
@@ -299,6 +311,7 @@ void setup() {
     }
   }
 
+  stepper->attach_error_handler(&driverErrorHandler);
   stepper->attach_flag_irq(&stepperISR);
   stepper->enable_flag_irq();
   stepper->set_home();
