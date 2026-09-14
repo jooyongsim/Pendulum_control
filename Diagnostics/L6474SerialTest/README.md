@@ -126,9 +126,38 @@ Windows: COM6
 Linux:   /dev/ttyACM0
 ```
 
+## Usage examples
+
+### Windows PowerShell — run from the repository root
+
+For example, to test relative 90-degree moves on `COM10` for 10 repetitions:
+
+```powershell
+python .\Diagnostics\L6474SerialTest\motor_serial_test.py --port COM10 --angle 90 --repeats 10 --mode move
+```
+
+For a 10-degree relative-move test:
+
+```powershell
+python .\Diagnostics\L6474SerialTest\motor_serial_test.py --port COM10 --angle 10 --repeats 20 --mode move
+```
+
+For a 10-degree absolute-position test:
+
+```powershell
+python .\Diagnostics\L6474SerialTest\motor_serial_test.py --port COM10 --angle 10 --repeats 20 --mode goto
+```
+
+Alternatively, change into the test directory first:
+
+```powershell
+cd .\Diagnostics\L6474SerialTest
+python .\motor_serial_test.py --port COM10 --angle 90 --repeats 10 --mode move
+```
+
 ## Absolute-position test
 
-Run:
+Run from inside `Diagnostics/L6474SerialTest`:
 
 ```bash
 python motor_serial_test.py --port COM6 --angle 45 --repeats 10 --mode goto
