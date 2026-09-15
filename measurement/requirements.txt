@@ -1,0 +1,5 @@
+# Free-swing measurement and identification
+pyserial>=3.5
+pandas>=2.0
+numpy>=1.26
+matplotlib>=3.7

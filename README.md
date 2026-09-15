@@ -39,6 +39,8 @@ This repository is based on the serial-control and simple PID examples in `jooyo
 - `pendulum_model_id.py` - system-identification script behind that document; reads `data/encoder_log_*.csv` and writes `pendulum_model_id.png` / `pendulum_model_validation.png`.
 - `docs/pendulum_ivp_and_simulator.md` - the identified model in both standard (wn, zeta) and physical (c, J, g) form, worked initial-value problems about the hanging and upright equilibria, and the simulator guide.
 - `pendulum_sim.py` - controller simulator built on the identified plant: PID and state feedback, 2- and 4-state pole placement, with control rate, encoder quantisation, actuator saturation, loop delay and the rotor travel limit.
+- `measurement/` - the free-swing recording: `log_free_swing.py`, procedure, CSV column reference and troubleshooting.
+- `analysis/` - visualisation and step-by-step explanation of the identification: extremum detection, viscous vs Coulomb damping, the envelope fit, where the frequency comes from.
 - `simple_pendulum_simulation.ipynb` - analytical-versus-numerical simulation of the fixed-pivot pendulum models.
 - `encoder_release_experiment.ipynb` - non-live encoder acquisition, timestamped CSV logging, plotting, and basic period/damping estimation for a hand-release test.
 - `encoder_live_monitor.py` - live encoder plot and CSV logger for the same hand-release test.
