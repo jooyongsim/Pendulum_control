@@ -248,3 +248,62 @@ This program can be used to:
 - build intuition before applying related control laws to the physical pendulum system.
 
 The simulator is intentionally lightweight and is not a full model of the stepper motor, L6474 driver, communication delay, encoder quantization, backlash, or missed motor steps. Those effects need to be considered separately when comparing simulation results with the real system.
+
+---
+
+# Rotary Pendulum Simulators (acceleration control)
+
+Two real-time simulators of the rotary rig itself: the arm is driven by an acceleration command,
+as on the hardware with `swing-up/SwingupController`.
+
+- [`rotary_balance_realtime.py`](./rotary_balance_realtime.py): balancing from 5 deg, 2-state (rod only) vs 4-state (rod + arm) pole placement
+- [`rotary_swingup_realtime.py`](./rotary_swingup_realtime.py): swing-up from hanging, catch, balance, and swing-up again after a fall
+- [`rotary_model.py`](./rotary_model.py): shared plant, motor, sensor and controllers
+
+```bash
+python3 simulator/rotary_balance_realtime.py            # window
+python3 simulator/rotary_balance_realtime.py --check    # numbers only
+python3 simulator/rotary_balance_realtime.py --plot     # analytic vs simulated figure (needs scipy)
+python3 simulator/rotary_swingup_realtime.py            # window
+python3 simulator/rotary_swingup_realtime.py --check    # nominal + robustness cases
+```
+
+Model (full nonlinear, `theta` from upright, `phi` arm angle, `u = phi''`):
+
+```text
+theta'' = (3g/2l) sin(theta) + b cos(theta) u + sin(theta) cos(theta) phi'^2 - 2 zeta wn theta' - Fc sign(theta')
+```
+
+| Parameter | Value | Source |
+|---|---:|---|
+| `wn` | `7.499 rad/s` | free swing |
+| `zeta` | `0.01172` | free swing |
+| dry friction | `2.705 deg/s` of amplitude | free swing |
+| `b = 3r/2l` | `0.730` (`r` = 127 mm) | open-loop test on the rig |
+| arm acceleration / speed | `24000 pps^2` / `4000 pps` | firmware |
+| motor stops below | `30 pps` | firmware |
+| arm stop | `140 deg` (host), `150 deg` (firmware latch) | scripts / firmware |
+| loop | `100 Hz`, `4 ms` delay, `0.3 deg` encoder | rig |
+
+Controllers are the ones used on the rig: 4-state poles `-6±6j, -1.5±1j`
+(`K = [236.2, 26.5, -4.16, -4.55]`); swing-up with energy pumping (pump 30 rad/s², kE 0.3,
+kpa 3, kda 5), catch below 12 deg / 4 rad/s with the arm within 60 deg, re-swing beyond 30 deg,
+and slow correction of the encoder's upright offset.
+
+`--check` results: balancing survives kicks up to about 148 deg/s; swing-up catches in 2.4 s
+(1.9-3.4 s on the rig) and balanced in 24/24 randomised cases
+(b 0.8-1.2x, friction 0.5-2x, delay 4-12 ms, start tilt ±2.5 deg).
+
+Keys (click the window first):
+
+| Key | Balance | Swing-up |
+|---|---|---|
+| `←` / `→` | kick the pendulum (∓1 rad/s) | same |
+| `↑` | big kick (+2.5 rad/s) | knock it over (+5 rad/s) |
+| `t` | tilt +3 deg | – |
+| `o` | – | encoder zero error +1 deg (corrected while balancing) |
+| `2` / `4` | 2-state / 4-state controller | – |
+| `c` | controller on/off | same |
+| `x` | realistic / ideal sensor | same |
+| `r` | reset | reset (hanging) |
+| `space` | pause | same |
