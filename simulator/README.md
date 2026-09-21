@@ -87,6 +87,14 @@ The controller output is saturated at:
 
 The simulator also implements simple anti-windup: the integral state is not accumulated while the unsaturated PID output exceeds the actuator limit.
 
+These three numbers are not tuned: they are the closed-loop poles the gains are
+solved backwards from. The integrator makes the loop third order, so three roots
+have to be named -- a complex pair `(wn_des, zeta_des)` and the real integrator
+pole `alpha`. [pid_gain_design.md](pid_gain_design.md) derives the three gain
+formulas, checks the placement numerically, explains why the step response
+overshoots 19 % even though `zeta_des = 0.7` (the PID zero at -5.19 rad/s, not a
+placement error), and what `3 * wn^2` means as a limit.
+
 ## Requirements
 
 Python 3 is required.

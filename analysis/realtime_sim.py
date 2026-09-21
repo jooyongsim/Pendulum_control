@@ -123,10 +123,14 @@ class Loop:
 
             self.alpha_dot += (self.u / self.p.arm_radius_m) * dt
             self.alpha += self.alpha_dot * dt
-            d1, d2 = ps.derivative(self.theta, self.omega, self.u,
+            _, acc = ps.derivative(self.theta, self.omega, self.u,
                                    self.plants[self.damping])
-            self.omega += d2 * dt
-            self.theta += d1 * dt
+            # Semi-implicit (symplectic) Euler: advance omega first, then use
+            # the NEW omega for theta. Plain explicit Euler pumps energy into an
+            # oscillator -- it grew an undamped 40 deg swing by 2.3 % in 10 s,
+            # which would show up as the plant "gaining" amplitude on screen.
+            self.omega += acc * dt
+            self.theta += self.omega * dt
             self.t += dt
 
         for k, v in (("t", self.t), ("theta", np.rad2deg(self.theta)),
@@ -181,18 +185,15 @@ def main():
     arrow = ax_view.annotate("", xy=(0, 0), xytext=(0, 0),
                              arrowprops=dict(arrowstyle="->", color="#E97820", lw=2.5))
     banner = ax_view.text(0, 0.29, "", ha="center", fontsize=10, fontweight="bold")
-    ax_view.text(-0.40, -0.245,
-                 "identified plant
-"
-                 f"$\omega_n$ = {p.wn:.3f} rad/s    $\zeta$ = {p.zeta:.5f}
-"
-                 f"viscous  $\sigma=\zeta\omega_n$ = {p.sigma:.4f} 1/s
-"
-                 f"Coulomb  {p.coulomb_dps:.3f} deg/s "
-                 f"({p.coulomb_accel:.3f} rad/s$^2$)
-"
-                 f"$L_{{eff}}$ = {p.L_eff*1000:.1f} mm    b = {p.b:.2f}",
-                 fontsize=8, color="#404040", va="bottom", family="monospace")
+    readout = "\n".join([
+        "identified plant",
+        rf"$\omega_n$ = {p.wn:.3f} rad/s   $\zeta$ = {p.zeta:.5f}",
+        rf"viscous  $\sigma = \zeta\omega_n$ = {p.sigma:.4f} 1/s",
+        rf"Coulomb  {p.coulomb_dps:.3f} deg/s = {p.coulomb_accel:.3f} rad/s$^2$",
+        rf"$L_{{eff}}$ = {p.L_eff * 1000:.1f} mm   $b$ = {p.b:.2f}",
+    ])
+    ax_view.text(-0.40, -0.30, readout, fontsize=8, color="#404040",
+                 va="bottom", ha="left")
 
     lines = {}
     for ax, key, label, color in ((ax_th, "theta", "theta [deg]", "#203864"),

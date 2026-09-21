@@ -177,9 +177,18 @@ class PID(Controller):
 
     name = "PID"
 
-    def __init__(self, kp, ki, kd, setpoint=0.0, u_max=np.inf, tau_d=0.02):
+    def __init__(self, kp, ki, kd, setpoint=0.0, u_max=np.inf, tau_d=0.02,
+                 d_on_measurement=True):
         self.kp, self.ki, self.kd = kp, ki, kd
         self.setpoint, self.u_max, self.tau_d = setpoint, u_max, tau_d
+        # Differentiate the MEASUREMENT, not the error. For a constant setpoint
+        # the two are identical; for a moving one, differentiating the error
+        # feeds the setpoint's own rate into u. With a cascade that setpoint
+        # depends on the rotor, whose acceleration IS u/r -- an algebraic loop
+        # of gain kd*k_alpha_dot/r = 1.77 here. Above unity the loop feeds
+        # itself: it hunts at +-9..17 deg (worse the heavier the filter) and
+        # never balances.
+        self.d_on_measurement = d_on_measurement
         self.reset()
 
     def reset(self):
@@ -189,13 +198,14 @@ class PID(Controller):
 
     def __call__(self, s: State, dt: float) -> float:
         error = s.theta - self.setpoint
+        d_input = s.theta if self.d_on_measurement else error
         if self.prev_error is None:
-            self.prev_error = error
-        raw_d = (error - self.prev_error) / dt
+            self.prev_error = d_input
+        raw_d = (d_input - self.prev_error) / dt
         # first-order filter: raw differences of a quantised angle are mostly noise
         alpha = dt / (self.tau_d + dt)
         self.d_state += alpha * (raw_d - self.d_state)
-        self.prev_error = error
+        self.prev_error = d_input
 
         u = self.kp * error + self.ki * self.integral + self.kd * self.d_state
         if abs(u) <= self.u_max:                     # conditional integration
@@ -236,6 +246,108 @@ def place_poles(p: PendulumParams, wn_des, zeta_des):
     return k1, k2
 
 
+def place_pid(p: PendulumParams, wn_des, zeta_des, w_int=0.0):
+    """PID gains (kp, ki, kd) that put the closed-loop poles where you ask.
+
+    The PID class commands u = kp e + ki integral(e) + kd e_dot with e = theta,
+    so the linearised upright loop
+
+        theta'' = wn^2 theta - 2 sigma theta' - u / L
+
+    closes to a THIRD order characteristic polynomial (the integrator adds a
+    state):
+
+        s^3 + (2 sigma + kd/L) s^2 + (kp/L - wn^2) s + ki/L = 0
+
+    Matching it to (s^2 + 2 zeta_d wn_d s + wn_d^2)(s + w_int) gives
+
+        kd = L (2 zeta_d wn_d + w_int - 2 sigma)
+        kp = L (wn_d^2 + 2 zeta_d wn_d w_int + wn^2)
+        ki = L wn_d^2 w_int
+
+    Everything on the right is identified: L = L_eff = g/wn^2, wn and sigma come
+    straight from the free-swing fit. Nothing else needs measuring.
+
+    w_int = 0 gives the PD design and is identical to place_poles(), up to the
+    sign convention (StateFeedback subtracts, PID adds). w_int is the integrator
+    pole: make it slow compared with wn_des (wn_des/4 .. wn_des/3) or it fights
+    the dominant pair.
+    """
+    L, a1, a0 = p.L_eff, 2 * zeta_des * wn_des, wn_des ** 2
+    kd = L * (a1 + w_int - 2 * p.sigma)
+    kp = L * (a0 + a1 * w_int + p.wn ** 2)
+    ki = L * a0 * w_int
+    return kp, ki, kd
+
+
+def closed_loop_poles_pid(p: PendulumParams, kp, ki, kd):
+    """Roots of the third-order loop above -- to check place_pid() did its job."""
+    L = p.L_eff
+    return np.roots([1.0, 2 * p.sigma + kd / L, kp / L - p.wn ** 2, ki / L])
+
+
+class CascadePID(Controller):
+    """Angle PID inside, rotor recentring outside.
+
+    A PID on the angle alone balances the pendulum but lets the rotor walk away:
+    holding a tilt theta needs a steady pivot acceleration u = g theta, which
+    integrates twice into the rotor angle. The fix is to ask for a small tilt in
+    the direction that drives the rotor back:
+
+        theta_setpoint = -(k_alpha alpha + k_alpha_dot alpha_dot)
+
+    The sign is the non-minimum-phase one: to bring a rotor at positive alpha
+    home, the pendulum must first lean NEGATIVE.
+
+    The outer gains are NOT free to tune. Expanding the inner law with a moving
+    setpoint (derivative on measurement) gives
+
+        u = kp theta + kd theta' + kp k_alpha alpha + kp k_alpha_dot alpha'
+
+    which is 4-state feedback written differently. Choosing k_alpha by the
+    usual quasi-static argument -- "outer loop 6x slower than the inner one" --
+    ignores the other two closed-loop poles and limit-cycles at about 5 deg.
+    Use cascade_from_4state() instead: it places all four poles and then
+    converts to cascade form.
+    """
+
+    name = "cascade PID"
+
+    def __init__(self, pid: "PID", k_alpha, k_alpha_dot, tilt_max_deg=2.0):
+        self.pid = pid
+        self.k_alpha, self.k_alpha_dot = k_alpha, k_alpha_dot
+        self.tilt_max = np.deg2rad(tilt_max_deg)
+
+    def reset(self):
+        self.pid.reset()
+
+    def __call__(self, s: State, dt: float) -> float:
+        tilt = -(self.k_alpha * s.alpha + self.k_alpha_dot * s.alpha_dot)
+        self.pid.setpoint = float(np.clip(tilt, -self.tilt_max, self.tilt_max))
+        return self.pid(s, dt)
+
+
+def cascade_from_4state(p: PendulumParams, poles, w_int=0.0, **pid_kw):
+    """Build a CascadePID whose four poles are placed, not guessed.
+
+    Returns (controller, (kp, ki, kd, k_alpha, k_alpha_dot)).
+
+    place_poles4 gives u = -(k1 theta + k2 theta' + k3 alpha + k4 alpha').
+    The cascade form of the same law is
+
+        kp = -k1,   kd = -k2,   k_alpha = k3/k1,   k_alpha_dot = k4/k1
+
+    w_int > 0 adds integral action to the inner loop on top of that, which the
+    placement does not account for -- keep it well below the dominant pair.
+    """
+    k1, k2, k3, k4 = place_poles4(p, poles)
+    kp, kd = -k1, -k2
+    ki = p.L_eff * (kp / p.L_eff - p.wn ** 2) * w_int if w_int else 0.0
+    inner = PID(kp, ki, kd, **pid_kw)
+    return (CascadePID(inner, k3 / k1, k4 / k1, tilt_max_deg=pid_kw.pop("tilt_max_deg", 5.0)),
+            (kp, ki, kd, k3 / k1, k4 / k1))
+
+
 # ---------------------------------------------------------------------------
 # simulation
 # ---------------------------------------------------------------------------
@@ -251,6 +363,10 @@ class SimConfig:
     linear: bool = False          # integrate the linearised plant instead
     theta0_deg: float = 5.0
     omega0_dps: float = 0.0
+    disturb_accel: float = 0.0    # constant angular acceleration [rad/s^2] added
+                                  # to the plant: a rig that is not level, or a
+                                  # pendulum whose mass is off the pivot axis.
+                                  # A tilt of phi is disturb_accel = wn^2 sin(phi).
 
 
 def simulate(p: PendulumParams, controller: Controller, cfg: SimConfig):
@@ -293,7 +409,7 @@ def simulate(p: PendulumParams, controller: Controller, cfg: SimConfig):
         alpha += alpha_dot * cfg.dt_plant
 
         d1, d2 = derivative(theta, omega, u, p, linear=cfg.linear)
-        omega += d2 * cfg.dt_plant
+        omega += (d2 + cfg.disturb_accel) * cfg.dt_plant
         theta += d1 * cfg.dt_plant
 
         log["t"][i] = t

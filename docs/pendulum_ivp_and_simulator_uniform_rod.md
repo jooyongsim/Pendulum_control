@@ -20,6 +20,8 @@ $$\boxed{\ J = \tfrac{1}{3}mL^2, \qquad l_c = \tfrac{1}{2}L\ }$$
 - 시뮬레이터: `pendulum_sim.py` (수정 불필요 — 3.2절)
 - 동정 결과 출처: `pendulum_model_id.py`, `docs/pendulum_model_identification.md`
 - 원본: `docs/pendulum_ivp_and_simulator.md`
+- 시뮬레이터 상세 문서: `docs/pendulum_simulator.md` (API, 설계 절차, 검증, 설계 여유, 한계)
+- 실시간 대화형 시뮬레이터: `analysis/realtime_sim.py`
 
 ---
 
@@ -444,6 +446,12 @@ $k_3,\ k_4$ 를 2상태 게인 위에 손으로 얹으면 발산한다. 로터�
 | **지연 3스텝 (30 ms)** | **아니오** |
 | 엔코더 1.0°, 구동기 ±2 m/s² | 예 |
 | 초기 기울기 15° | 예 (로터 110° — 한계 초과) |
+
+> **주의 — 위 표는 제어기에 *참* 속도를 준 결과다.** `simulate()` 는 $\dot\theta$ 를
+> 플랜트에서 그대로 넘기지만, 실제 하드웨어에는 그런 신호가 없고 0.3° 엔코더를 차분해야
+> 한다. 차분 속도로 다시 돌리면 **100 Hz 는 그대로 유지되지만 50 Hz + 20 ms 필터는
+> 실패한다(최종 6.394°)**. 즉 여기의 "50 Hz 예" 는 낙관적인 값이고, 100 Hz 권고는 여유가
+> 아니라 필요조건에 가깝다. → `docs/pendulum_simulator.md` 6.1절
 
 - **샘플링 하한은 20 Hz와 50 Hz 사이.** 2.4절의 $\tau = 133\ \mathrm{ms}$ 와 일관된다.
 - **지연이 가장 치명적이다.** 30 ms면 실패한다.

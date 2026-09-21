@@ -32,23 +32,39 @@ analysis/plot_extrema_detection.py        did the extremum detection work?
 | Script | Answers |
 | --- | --- |
 | `plot_extrema_detection.py` | Were the maxima and minima found correctly, and where were the releases? |
+| `plot_extrema_all.py` | The same check, drawn exhaustively: every log, every decay run, with the viscous-only and viscous+Coulomb envelope fits overlaid |
 | `damping_mechanisms.py` | Why is viscous decay exponential and Coulomb decay linear? |
 | `explain_envelope_fit.py` | How is the envelope actually fitted, step by step? |
 | `explain_frequency.py` | Where do the period, ω_d, ωₙ and ζ come from? |
 | `explain_release_angle.py` | What is the "release angle" — a setting or a measurement? |
 | `rod_parameters.py` | What follows from J = ⅓ m ℓ² ? |
+| `realtime_sim.py` | **Interactive**: run the identified plant live and poke at the controller |
+| `design_pid.py` | Design a PID from the identified coefficients, and does it survive? |
 
 ```bash
 cd analysis
 python plot_extrema_detection.py --no-show     # writes extrema_detection.png
+python plot_extrema_all.py                     # save + open 9 windows
+python plot_extrema_all.py --no-show --out-dir figs_extrema   # save only
+python plot_extrema_all.py --select viscous    # viscous-only model, its own page
+python plot_extrema_all.py --select viscous,joint --no-save   # one page per model
 python damping_mechanisms.py --no-show         # writes damping_mechanisms.png
 python explain_envelope_fit.py                 # prints the fit, step by step
 python explain_frequency.py
 python explain_release_angle.py
 python rod_parameters.py
+python realtime_sim.py                         # interactive window
+python design_pid.py --no-show                 # writes design_pid.png
 ```
 
-`--no-show` saves the figure without opening a window. `plot_extrema_detection.py`
+`realtime_sim.py` runs the plant against the wall clock and draws it live:
+space pauses, `c` turns the controller off (watch it fall), `1/2/3` switch
+design, arrows disturb it, `d` cycles the damping model, `v` swaps an exact
+velocity for one differenced from the quantised angle.
+
+`--no-show` saves the figure without opening a window; `plot_extrema_all.py`
+also takes `--select full,runs,summary` to draw a subset and `--no-save` to
+open the windows without writing anything. `plot_extrema_detection.py`
 also takes `--zoom T0 T1` and `--glob`.
 
 ---
@@ -111,9 +127,14 @@ dA/dt = -(sigma*A + c_coulomb)
 
 | Model | Envelope shape | R² |
 | --- | --- | --- |
-| Viscous only | exponential | 0.943 |
+| Viscous only | exponential | 0.943 (0.928 scored on A) |
 | Coulomb only | linear | 0.960 |
 | **Viscous + Coulomb** | mixed | **0.997** |
+
+Each model is fitted where it is linear, so the viscous R² above is measured on
+log A while the other two are measured on A. Scored on A like the others, the
+viscous-only fit gives 0.928 — the ranking is unchanged, but only the second
+column is a like-for-like comparison. `single_mechanism_fits()` returns both.
 
 Neither alone fits. The cleanest single indicator is the ratio between
 successive same-sign extrema: pure viscous damping holds it **constant**, and
@@ -136,5 +157,10 @@ Two practical consequences:
 anywhere between 0.02 and 0.25 1/s and refitting the Coulomb term keeps R² above
 0.96. The **total** decay is well determined; the **split** is not, which is why
 the per-run σ spans a factor of 8. Quote the envelope, not σ on its own.
+
+`design_pid.py` closes the loop with the identified numbers: closed-form PID
+gains, the bandwidth the ±6 m/s² limit allows, what the integrator is and is
+not for, and the cascade that keeps the rotor from walking away. Written up in
+`../docs/pendulum_pid_design.md`.
 
 See `../docs/pendulum_model_identification.md` for the full method and results.

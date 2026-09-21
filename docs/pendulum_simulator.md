@@ -8,6 +8,7 @@
 - 코드: [`../pendulum_sim.py`](../pendulum_sim.py)
 - 플랜트 파라미터 출처: [`../pendulum_model_id.py`](../pendulum_model_id.py),
   [`pendulum_model_identification.md`](pendulum_model_identification.md)
+- 실시간 대화형 버전: [`../analysis/realtime_sim.py`](../analysis/realtime_sim.py) — 7절
 
 ---
 
@@ -234,8 +235,14 @@ $$\frac{0.3°}{0.01\ \mathrm{s}} = 30\ \mathrm{deg/s} = 0.524\ \mathrm{rad/s}$$
 넣으면 실패한다** — 5절 표의 "50 Hz 예" 는 참 속도를 준 결과다. 100 Hz 권고는 여유가
 아니라 필요조건에 가깝다.
 
-> 재현: `analysis/` 에는 아직 이 실험이 없다. 필요하면
-> `StateFeedback` 대신 각도만 받아 차분하는 제어기를 만들어 같은 `SimConfig` 로 돌리면 된다.
+> **더 엄격한 결과가 있다.** 위 표는 로터 속도도 같은 필터를 거친 경우다. 로터 속도를
+> 정확히 아는 상태로(스텝 카운트에서 나오므로 실제로 그렇다) 캐스케이드를 닫으면
+> $	au_d = 20$ ms 는 100 Hz 에서도 ±3.6° 로 헌팅한다 — 한 제어 주기(10 ms)를 쓸 것.
+> [`pendulum_pid_design.md`](pendulum_pid_design.md) 6절.
+>
+> 재현: `analysis/realtime_sim.py` 를 띄우고 **`v`** 를 누르면 참 속도 ↔ 차분 속도가
+> 그 자리에서 바뀐다. `--control-hz 50` 으로 띄워 놓고 눌러 보면 위 표의 마지막 줄이
+> 눈앞에서 재현된다.
 
 ### 6.2 그 밖의 한계
 
@@ -250,3 +257,82 @@ $$\frac{0.3°}{0.01\ \mathrm{s}} = 30\ \mathrm{deg/s} = 0.524\ \mathrm{rad/s}$$
 - **`settled` 판정은 느슨하다.** 마지막 0.5 s 동안 $\vert\theta\vert < 2°$ 이면 참이므로,
   한계 주기 진동(limit cycle)을 성공으로 볼 수 있다. 정밀한 판정이 필요하면 `theta_deg`
   를 직접 보는 편이 낫다.
+
+---
+
+## 7. 실시간 시뮬레이터 `analysis/realtime_sim.py`
+
+`simulate()` 가 정해진 구간을 한 번에 적분해 로그를 돌려준다면, `realtime_sim.py` 는 같은
+플랜트를 **벽시계 시간에 맞춰** 돌리며 그리는 대화형 창이다. 물리는 그대로
+`ps.derivative()` 를 호출하므로 배치 시뮬레이터·동정 코드와 **같은 한 벌의 방정식**이다.
+
+```bash
+cd analysis
+python realtime_sim.py
+python realtime_sim.py --control-hz 50 --encoder-deg 0.3 --accel-max 6
+```
+
+`--control-hz`, `--encoder-deg`, `--accel-max`, `--rotor-limit-deg`, `--theta0-deg`,
+`--arm-radius`, `--window` 로 `SimConfig` 를 그대로 덮어쓴다.
+
+### 7.1 조작
+
+| 키 | 동작 |
+| --- | --- |
+| `space` | 일시정지 / 재개 |
+| `c` | 제어기 on / off — 끄면 넘어지는 것을 그대로 본다 |
+| `1` `2` `3` | 설계 전환: 2상태, 4상태 느림 $[-8\pm8j,\ -2\pm j]$, 4상태 빠름 $[-12\pm12j,\ -3\pm j]$ |
+| `←` `→` | 충격 외란 |
+| `d` | 감쇠 모델 순환 (7.2절) |
+| `v` | 참 속도 ↔ 양자화된 각도를 차분한 속도 (6.1절) |
+| `r` | 리셋 |
+| `q` | 종료 |
+
+`1` 을 눌러 2상태 설계로 바꾸면 3.1절의 로터 표류가 실시간으로 보인다. 진자는 서 있는데
+로터 각도만 한쪽으로 계속 감긴다 — 초기 기울기 5°, 10 s 기준으로 **2상태는 로터가 1181°,
+4상태(느림)는 34°** 까지 간다.
+
+### 7.2 감쇠 모드 — 동정된 계수가 실제로 들어 있다
+
+`d` 는 네 가지 플랜트를 순환한다. 새 모델을 만드는 것이 아니라 동정된 `PendulumParams`
+에서 해당 항만 0 으로 지운 것(`dataclasses.replace`)이므로 물리 경로는 하나로 유지된다.
+
+40° 에서 놓고 제어기를 끈 채 10 s (마지막 2 s 구간의 최대 $\vert\theta\vert$):
+
+| 모드 | $\sigma = \zeta\omega_n$ | Coulomb | 진폭 변화 |
+| --- | --- | --- | --- |
+| **identified** | 0.0798 1/s | 3.149 deg/s | 39.6° → **2.1°** |
+| viscous only | 0.0798 1/s | 0 | 39.6° → 20.8° |
+| Coulomb only | 0 | 3.149 deg/s | 39.6° → 13.9° |
+| none | 0 | 0 | 40.0° → **40.0°** |
+
+두 항의 상대 크기는 $\theta = 10°,\ \dot\theta = 1\ \mathrm{rad/s}$ 에서 이렇게 갈린다.
+
+$$\underbrace{+9.7886}_{\text{중력}}\quad\underbrace{-0.1596}_{\text{점성}}\quad\underbrace{-0.6482}_{\text{Coulomb}}\quad=\quad +8.9808\ \mathrm{rad/s^2}$$
+
+**Coulomb 항이 점성 항의 4 배**다. 동정에서 "마찰은 건마찰이 지배한다" 고 결론 낸 것과 같은
+이야기이며([pendulum_model_identification.md](pendulum_model_identification.md)),
+화면의 계수 표시와 위 표가 그것을 눈으로 확인시켜 준다.
+
+같은 조건으로 30 s 까지 두면 identified 모드는 **+0.09° 에서 사실상 정지한다**
+(마지막 2 s 의 peak-to-peak 0.015°). 지수적으로 영원히 줄어드는 것이 아니라 **멈춘다**
+— Coulomb 마찰의 유한시간 정지이고, 실측에서 진자가 0° 가 아닌 곳에 서 버린 것과 같은 성질이다.
+
+> **적분기 주의.** 이 루프는 준음함수(symplectic) 오일러를 쓴다. $\omega$ 를 먼저 갱신하고
+> **새** $\omega$ 로 $\theta$ 를 적분한다는 뜻이다. 명시적 오일러로 쓰면 진동자에 에너지를
+> 꾸준히 넣어서, 감쇠를 모두 끈 40° 스윙이 10 s 에 2.3 % 커진다 — 화면에서는 플랜트가
+> 스스로 진폭을 키우는 것처럼 보인다. 위 표의 `none` 행이 40.0° → 40.0° 인 것이 그 점검이다.
+> 감쇠 행의 숫자가 적분 오차가 아니라 실제 감쇠라는 근거이기도 하다.
+
+### 7.3 시각화 도구 선택
+
+| 도구 | 이 환경 | 판단 |
+| --- | --- | --- |
+| **matplotlib 3.10.6** | 설치됨 | **채택** — 이미 이 프로젝트의 의존성이고, `FuncAnimation` + blitting 이면 50 Hz 화면에 충분하다 |
+| tkinter | 설치됨 (표준 라이브러리) | matplotlib 의 백엔드로 이미 쓰인다. 직접 쓰면 플롯을 손으로 그려야 한다 |
+| PySide6 6.9.2 | 설치됨 | 슬라이더·도킹 같은 UI 가 필요해지면 선택지. 지금은 과하다 |
+| ipywidgets 8.1.7 | 설치됨 | 노트북 안에서 돌리고 싶을 때. 키 입력 대신 위젯이 된다 |
+| pygame / pyqtgraph / vpython / plotly | 없음 | 설치가 필요해 제외 |
+
+새로 설치할 것이 없다는 점이 결정적이었다. 강의·실습 환경에서 `python realtime_sim.py`
+한 줄로 그대로 돌아간다.

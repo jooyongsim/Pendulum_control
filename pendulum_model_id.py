@@ -134,13 +134,37 @@ def envelope_decay(t, A):
     return dict(A0=P + Q, sigma=sigma, coulomb=-Q * sigma, r2=r2)
 
 
-def single_mechanism_r2(t, A):
-    """R^2 of the viscous-only and Coulomb-only envelopes, for comparison."""
+def single_mechanism_fits(t, A):
+    """Fit each mechanism on its own, and return the parameters, not just R^2.
+
+        viscous only : A = A0 exp(-sigma t)   -- a straight line in log A
+        Coulomb only : A = A0 - rate * t      -- a straight line in A
+
+    Each is fitted where it is linear, so `r2` below is measured on log A for
+    the viscous model and on A for the Coulomb one. Those two numbers are NOT
+    directly comparable with each other, nor with envelope_decay()'s r2, which
+    is measured on A. `r2_on_A` is the same fit scored on A for all of them,
+    which is the comparison to quote when the models are put side by side.
+    """
     pv = np.polyfit(t, np.log(A), 1)
     r2v = 1 - np.var(np.log(A) - np.polyval(pv, t)) / np.var(np.log(A))
     pl = np.polyfit(t, A, 1)
     r2l = 1 - np.var(A - np.polyval(pl, t)) / np.var(A)
-    return r2v, r2l
+
+    def r2_on_A(pred):
+        return float(1.0 - np.sum((A - pred) ** 2) / np.sum((A - A.mean()) ** 2))
+
+    visc = dict(A0=float(np.exp(pv[1])), sigma=float(-pv[0]), r2=float(r2v))
+    coul = dict(A0=float(pl[1]), rate=float(-pl[0]), r2=float(r2l))
+    visc["r2_on_A"] = r2_on_A(visc["A0"] * np.exp(-visc["sigma"] * t))
+    coul["r2_on_A"] = r2_on_A(np.polyval(pl, t))
+    return dict(viscous=visc, coulomb=coul)
+
+
+def single_mechanism_r2(t, A):
+    """R^2 of the viscous-only and Coulomb-only envelopes, for comparison."""
+    fits = single_mechanism_fits(t, A)
+    return fits["viscous"]["r2"], fits["coulomb"]["r2"]
 
 
 def analyse_file(path):
