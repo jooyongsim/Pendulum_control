@@ -308,7 +308,9 @@ python realtime_sim.py --control-hz 50 --encoder-deg 0.3 --accel-max 6
 
 두 항의 상대 크기는 $\theta = 10°,\ \dot\theta = 1\ \mathrm{rad/s}$ 에서 이렇게 갈린다.
 
-$$\underbrace{+9.7886}_{\text{중력}}\quad\underbrace{-0.1596}_{\text{점성}}\quad\underbrace{-0.6482}_{\text{Coulomb}}\quad=\quad +8.9808\ \mathrm{rad/s^2}$$
+$$\underbrace{+9.7886}_{\text{gravity}}\quad\underbrace{-0.1596}_{\text{viscous}}\quad\underbrace{-0.6482}_{\text{Coulomb}}\quad=\quad +8.9808\ \mathrm{rad/s^2}$$
+
+왼쪽부터 중력, 점성, Coulomb 항이다.
 
 **Coulomb 항이 점성 항의 4 배**다. 동정에서 "마찰은 건마찰이 지배한다" 고 결론 낸 것과 같은
 이야기이며([pendulum_model_identification.md](pendulum_model_identification.md)),

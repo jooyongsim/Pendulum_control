@@ -211,7 +211,7 @@ $$\dot{\mathbf{x}} =
 
 불안정 극점이 $+7.43\ \mathrm{rad/s}$라는 것은 다음을 뜻한다.
 
-$$\tau = \frac{1}{7.43} = 135\ \mathrm{ms} \quad (\text{e배 발산}),
+$$\tau = \frac{1}{7.43} = 135\ \mathrm{ms} \quad (\text{e-fold}),
 \qquad t_{2\times} = \frac{\ln 2}{7.43} = 93\ \mathrm{ms}$$
 
 - **샘플링**: 현재 50 Hz는 불안정 시상수당 6.7 샘플에 불과하다. 동작은 하지만 여유가 없으므로

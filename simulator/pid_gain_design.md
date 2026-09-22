@@ -46,7 +46,7 @@ $$J\ddot\theta + (c + K_d)\dot\theta + (k + K_p)\theta + K_i\!\int\!\theta\,dt =
 
 적분항이 있으므로 한 번 미분한다.
 
-$$J\dddot\theta + (c + K_d)\ddot\theta + (k + K_p)\dot\theta + K_i\theta = 0$$
+$$J\,\frac{d^3\theta}{dt^3} + (c + K_d)\ddot\theta + (k + K_p)\dot\theta + K_i\theta = 0$$
 
 $$\boxed{\;J s^3 + (c + K_d)s^2 + (k + K_p)s + K_i = 0\;}$$
 
@@ -116,7 +116,7 @@ $\alpha$ 를 키우면 적분이 빨라지지만 $K_i = \alpha\omega_{des}^2$ �
 
 $\alpha$ 는 세 게인에 서로 다른 방식으로 들어간다.
 
-$$K_i = J\alpha\omega_{des}^2\ (\alpha\text{ 에 정비례}),\qquad
+$$K_i = J\alpha\omega_{des}^2,\qquad
 K_p \ni 2\alpha\zeta_{des}\omega_{des},\qquad K_d \ni \alpha$$
 
 시간 영역에서는 $e^{-\alpha t}$ 모드, 즉 **시상수 $1/\alpha = 0.125$ s** 로 정상상태 오차가
@@ -188,7 +188,9 @@ $\alpha \approx 4$ 가 더 나은 거래다. (강의 슬라이드와 맞춘 값�
 
 기준값이 $K_p$ 와 $K_i$ 두 경로로 들어오므로 $\theta_{ref} \to \theta$ 전달함수의 분자는
 
-$$K_p s + K_i \qquad\Longrightarrow\qquad \text{영점 } s = -\frac{K_i}{K_p} = -5.19\ \mathrm{rad/s}$$
+$$K_p s + K_i \qquad\Longrightarrow\qquad s = -\frac{K_i}{K_p} = -5.19\ \mathrm{rad/s}$$
+
+즉 영점이 $-5.19$ rad/s 에 생긴다.
 
 이 영점은 극점($-8.4,\ -8$)보다 **느리다**. 느린 영점은 응답을 앞으로 당기며 오버슈트를 키운다.
 

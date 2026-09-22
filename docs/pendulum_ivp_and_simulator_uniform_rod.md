@@ -116,7 +116,9 @@ $$l_c = \frac{L}{2} = 130.48\ \mathrm{mm}$$
 
 균일 막대 가정은 미지수 네 개를 **$c,\ m,\ L$ 세 개로** 줄이고, 그중 **$L$ 을 자유 진동이 직접 결정한다.**
 
-$$\omega_n \ \longrightarrow\ L = \frac{3g}{2\omega_n^2} \quad\text{(질량과 무관)}$$
+$$\omega_n \ \longrightarrow\ L = \frac{3g}{2\omega_n^2}$$
+
+질량과 무관하다.
 
 남은 축퇴는 $m$ 방향 하나뿐이다. $m$ 을 두 배로 하면서 $c$ 도 두 배로 하면 같은 파형이 나온다.
 **그런데 $m$ 은 저울로 재면 끝이다.**
