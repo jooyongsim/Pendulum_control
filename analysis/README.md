@@ -40,6 +40,7 @@ analysis/plot_extrema_detection.py        did the extremum detection work?
 | `rod_parameters.py` | What follows from J = ⅓ m ℓ² ? |
 | `realtime_sim.py` | **Interactive**: run the identified plant live and poke at the controller |
 | `design_pid.py` | Design a PID from the identified coefficients, and does it survive? |
+| `pid_from_measurement.py` | The same measurement, both operating points, and how much the design depends on it |
 
 ```bash
 cd analysis
@@ -55,6 +56,7 @@ python explain_release_angle.py
 python rod_parameters.py
 python realtime_sim.py                         # interactive window
 python design_pid.py --no-show                 # writes design_pid.png
+python pid_from_measurement.py --no-show       # writes pid_from_measurement.png
 ```
 
 `realtime_sim.py` runs the plant against the wall clock and draws it live:
