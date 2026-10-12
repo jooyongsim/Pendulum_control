@@ -9,8 +9,11 @@ import serial.tools.list_ports
 
 
 # The Nucleo re-enumerates on a different COM port fairly often, so the port is
-# found by its ST-Link descriptor rather than hard-coded.
+# found by its ST-Link descriptor rather than hard-coded. With the generic Windows
+# driver the port is only called "USB Serial Device", so the USB vendor id of
+# STMicroelectronics (0x0483) is accepted as well.
 STLINK_HINTS = ("stlink", "st-link", "stmicroelectronics")
+ST_VID = 0x0483
 
 
 def find_board_port(preferred: Optional[str] = None) -> str:
@@ -21,7 +24,7 @@ def find_board_port(preferred: Optional[str] = None) -> str:
         return preferred
 
     matches = [p.device for p in ports
-               if any(h in f"{p.description} {p.hwid}".lower() for h in STLINK_HINTS)]
+               if p.vid == ST_VID or any(h in f"{p.description} {p.hwid}".lower() for h in STLINK_HINTS)]
     if len(matches) == 1:
         if preferred:
             print(f"{preferred} is not present; using {matches[0]} instead.")
