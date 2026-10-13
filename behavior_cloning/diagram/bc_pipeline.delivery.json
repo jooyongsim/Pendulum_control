@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "d5f44589-959b-4850-bc7d-e2f29f93f91f",
+  "status": "current",
+  "command": "deliver",
+  "type": "dataflow",
+  "input": "/Users/juneshim/Desktop/Pendulum_control/behavior_cloning/diagram/candidate.json",
+  "output": "/Users/juneshim/Desktop/Pendulum_control/behavior_cloning/diagram/bc_pipeline.html",
+  "specification": {
+    "sha256": "5e5d414835cbeee3b9126d641d65f2a159d23554214fea95869980e182bd2bea",
+    "bytes": 33879
+  },
+  "artifact": {
+    "sha256": "9fa2a5308f3a9efae023720ce319967e43ae69f512db3c28583edf350c716930",
+    "bytes": 765301
+  }
+}
