@@ -1,5 +1,7 @@
 # BC_Pendulum — Behavior Cloning + DAgger로 회전형 진자 스윙업
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jooyongsim/Pendulum_control/blob/sumin/BC_Pendulum/bc_rotary_swingup_colab.ipynb)
+
 신경망이 우리 스윙업 제어기(에너지 펌핑 + 4상태 극 배치)를 흉내 내도록 학습하고,
 시뮬레이터에서 확인한 뒤 실제 장비(STEVAL-EDUKIT01)에서 실행합니다.
 
@@ -29,6 +31,14 @@
 | bc_dart | 100% | 100% | 100% | 100% |
 | **dagger** | 100% | 100% | 100% | 95% |
 | bc_nll | 15% | 40% | 0% | 65% |
+
+**같은 상황에서 다섯 가지 비교** (2초에 쓰러뜨림 → 다시 올리나?)
+
+![knock-over](figures/compare_knockover.gif)
+
+**매달림에서 스윙업**
+
+![swing-up](figures/compare_swingup.gif)
 
 그냥 BC는 시연과 비슷한 상황만 되고, 처음 보는 상황(쓰러뜨리기, 지연)에서 실수가 쌓여 실패합니다. DART와 DAgger가 이를 해결합니다.
 

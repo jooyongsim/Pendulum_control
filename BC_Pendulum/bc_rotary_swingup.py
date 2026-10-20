@@ -498,6 +498,47 @@ def animate_episode(actor, kind="hang", seed=0, duration=8.0, fps=20):
     return anim
 
 
+def compare_animation(actors, kind="top", seed=3, duration=8.0, fps=20):
+    """Side-by-side animation of several controllers in the SAME episode (same start, same kick).
+    actors: {"name": policy or None (= expert)}.  Returns a FuncAnimation."""
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation
+    logs = {}
+    for name, act in actors.items():
+        r = run_episode(Controller(act), kind, np.random.default_rng(seed), duration=duration, log=True)
+        logs[name] = (r, r["log"])
+    n = len(actors)
+    fig, axes = plt.subplots(1, n, figsize=(2.6 * n, 3.7))
+    lim = 1.25 * rm.L
+    rods, texts = [], []
+    for ax, (name, (r, d)) in zip(np.atleast_1d(axes), logs.items()):
+        ax.set_aspect("equal"); ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.axis("off")
+        ax.add_patch(plt.Circle((0, 0), rm.L, fill=False, color="0.85", ls="--"))
+        rod, = ax.plot([], [], lw=6, solid_capstyle="round",
+                       color="#2E8B57" if actors[name] is None else "#C0392B")
+        ax.plot([0], [0], "ko", ms=5)
+        ax.set_title(f"{name}\n{'balanced' if r['ok'] else 'FAILED'}", fontsize=10,
+                     color="k" if r["ok"] else "#C0392B")
+        rods.append((rod, d)); texts.append(ax.text(0, -1.18 * rm.L, "", ha="center", fontsize=8))
+    step = max(1, int(round(1.0 / (fps * 0.01))))
+    n_frames = min(len(d) for _, d in rods)
+
+    def update(i):
+        k = min(i * step, n_frames - 1)
+        for (rod, d), txt in zip(rods, texts):
+            th = math.radians(d[k, 1])
+            rod.set_data([0, rm.L * math.sin(th)], [0, rm.L * math.cos(th)])
+            txt.set_text(f"t={d[k, 0]:4.1f}s  arm {d[k, 2]:5.0f}°")
+        return [r for r, _ in rods] + texts
+
+    fig.suptitle({"top": "knocked over at 2 s (4-6 rad/s): does it swing up again?",
+                  "hang": "swing-up from hanging"}[kind], fontsize=10, y=0.98)
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    anim = FuncAnimation(fig, update, frames=n_frames // step, interval=1000 / fps, blit=True)
+    plt.close(fig)
+    return anim
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("train", "eval", "demo", "gif"))
