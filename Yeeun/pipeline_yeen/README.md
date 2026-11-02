@@ -103,7 +103,7 @@ arena_*                    100 Hz rm.Loop — 실기의 루프
 `arena.py` 를 단독으로 돌리면 모방학습 쪽 체크포인트도 같은 잣대로 채점된다.
 
 ```powershell
-python pipeline_yeen/arena.py --task swingup --suite robust
+python Yeeun/pipeline_yeen/arena.py --task swingup --suite robust
 ```
 
 측정된 것 — **깨끗한 조건은 아무것도 구분하지 못한다.**
@@ -122,24 +122,27 @@ RL 정책에도 적분기는 없다. **보상이 그 역할을 대신할 수 있
 
 ## 실행
 
+저장소 루트에서 실행한다. `arena.py` 가 `simulator`, `rl_yeen`, `behavior_cloning_yeen` 을
+**스스로 찾아** `sys.path` 에 넣으므로 `PYTHONPATH` 를 손으로 잡을 필요는 없다
+(이 폴더에서 위로 올라가며 최대 5단계까지 찾는다 — 폴더를 또 옮겨도 된다).
+
 ```powershell
 conda activate control2026
-$env:PYTHONPATH = "simulator;behavior_cloning_yeen;rl_yeen;pipeline_yeen"
 ```
 
 ```powershell
 # 배관 점검 — 네 단계를 아주 작은 숫자로 전부 통과 (약 1분). 긴 학습 전에 반드시.
-python pipeline_yeen/fusion.py --task swingup --smoke
+python Yeeun/pipeline_yeen/fusion.py --task swingup --smoke
 ```
 
 ```powershell
 # 본 실행. cold 대조군까지 (CPU 40~70분)
-python pipeline_yeen/fusion.py --task swingup --steps 60000 --baseline --csv pipeline_yeen/fusion_swingup.csv
+python Yeeun/pipeline_yeen/fusion.py --task swingup --steps 60000 --baseline --csv Yeeun/pipeline_yeen/fusion_swingup.csv
 ```
 
 ```powershell
 # 공통 채점장에서 전부 다시 채점 (numpy만 필요)
-python pipeline_yeen/arena.py --task swingup --suite robust
+python Yeeun/pipeline_yeen/arena.py --task swingup --suite robust
 ```
 
 의미 있는 비교는 **같은 예산의 cold start** 하나뿐이다. "SAC가 풀었다" 는 출발점이 없던
@@ -147,9 +150,9 @@ python pipeline_yeen/arena.py --task swingup --suite robust
 
 ## 앞뒤 연구
 
-- [`behavior_cloning_yeen/`](../behavior_cloning_yeen) — BC vs DAgger, 데이터 수 비교.
+- [`behavior_cloning_yeen/`](../../behavior_cloning_yeen) — BC vs DAgger, 데이터 수 비교.
   여기서 8.9° 편향과 DAgger 하한선이 나왔다.
-- [`rl_yeen/`](../rl_yeen) — 보상 항 ablation. 위 표의 세 번째 줄("보상을 잘못 쓰면 그걸
+- [`rl_yeen/`](../../rl_yeen) — 보상 항 ablation. 위 표의 세 번째 줄("보상을 잘못 쓰면 그걸
   충실히 달성한다")을 따로 다룬다. `trap` 보상에서는 **일부러 실패하는 쪽이 이득**이다.
 
 ## 참고

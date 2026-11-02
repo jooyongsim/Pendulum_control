@@ -33,27 +33,80 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", "4")
 
 import argparse               # noqa: E402
+import contextlib             # noqa: E402
 import math                   # noqa: E402
 import sys                    # noqa: E402
 from pathlib import Path      # noqa: E402
 
 import numpy as np            # noqa: E402
 
-REPO = Path(__file__).resolve().parents[1]
-BC_DIR, RL_DIR = REPO / "behavior_cloning_yeen", REPO / "rl_yeen"
-for p in (REPO / "simulator", BC_DIR, RL_DIR):
-    sys.path.insert(0, str(p))
-
-import rotary_model as rm     # noqa: E402
-import il_common as il        # noqa: E402
-import rl_common as rl        # noqa: E402
-
 ROOT = Path(__file__).resolve().parent
 FIG_DIR = ROOT / "figs"
 
+
+def _sibling(name, must_contain):
+    """Find a package folder without assuming how deep this file is nested.
+
+    This folder has been moved once already (Yeeun/pipeline_yeen), and the ones it imports from
+    may move too. So walk up from here and take the first ancestor that actually holds the
+    folder, instead of hard-coding parents[1].
+    """
+    for base in _BASES:
+        p = base / name
+        if (p / must_contain).is_file():
+            return p
+    return None
+
+
+# Path.parents is not sliceable before 3.10, so build the list by hand.
+_BASES = tuple(list(ROOT.parents)[:5])
+
+
+SIM_DIR = _sibling("simulator", "rotary_model.py")
+RL_DIR = _sibling("rl_yeen", "rl_common.py")
+BC_DIR = _sibling("behavior_cloning_yeen", "il_common.py")      # optional: only for its ckpts
+
+if SIM_DIR is None or RL_DIR is None:
+    missing = [n for n, d in (("simulator", SIM_DIR), ("rl_yeen", RL_DIR)) if d is None]
+    raise ImportError(
+        f"cannot find {' and '.join(missing)} above {ROOT}.\n"
+        f"  Both must sit somewhere on the way up from this file -- in the repository root\n"
+        f"  alongside it, or beside this folder. Looked in: "
+        + ", ".join(str(b) for b in _BASES))
+
+REPO = SIM_DIR.parent
+for p in (SIM_DIR, RL_DIR, BC_DIR):
+    if p is not None:
+        sys.path.insert(0, str(p))
+
+import rotary_model as rm     # noqa: E402
+import rl_common as rl        # noqa: E402
+
+if BC_DIR is not None:
+    import il_common as il    # noqa: E402
+else:                         # the imitation folder is not needed to run the fusion pipeline
+    il = None
+
 DT_TICK = 0.01                  # 100 Hz: one Loop control step is advance(10)
-ARM_LIMIT_DEG = il.ARM_LIMIT_DEG
+ARM_LIMIT_DEG = 140.0           # the host-side stop, same as il_common and the rig
 U_MAX = rm.ACCEL_MAX
+K4 = rm.place4()
+
+
+@contextlib.contextmanager
+def model_errors(coulomb=1.0, delay=None):
+    """rotary_model keeps Coulomb friction and the loop delay in module globals.
+
+    Same helper as il_common.model_errors, kept here so this arena works with or without the
+    imitation-learning folder present.
+    """
+    f0, d0 = rm.F_C, rm.DELAY
+    rm.F_C = f0 * coulomb
+    rm.DELAY = d0 if delay is None else delay
+    try:
+        yield
+    finally:
+        rm.F_C, rm.DELAY = f0, d0
 
 # ---------------------------------------------------------------- tasks
 # A swing-up agent has to get there; a balance agent is handed the rod already up. Scoring the
@@ -93,7 +146,7 @@ def run(ctrl, task="swingup", theta0_deg=None, seconds=None, b=rm.B_U, coulomb=1
     pending = sorted(kicks)
     keys = ("t", "th", "w", "phi", "phi_dot", "u")
     log = {k: [] for k in keys}
-    with il.model_errors(coulomb, delay):
+    with model_errors(coulomb, delay):
         plant = rm.Plant(math.radians(th0), b=b)
         lp = rm.Loop(plant, ctrl, rm.Sensor(realistic), arm_limit_deg=ARM_LIMIT_DEG,
                      offset=math.radians(offset_deg))
@@ -163,15 +216,23 @@ def evaluate(ctrl, task="swingup", reward="full", **plant):
 
 # ---------------------------------------------------------------- the line-up
 def expert():
-    c = rm.SwingUp(il.K4)
+    c = rm.SwingUp(K4)
     c.label = "expert"
     return c
 
 
 def bc_controllers(ckpt_dir=None):
-    """Every behaviour-cloning / DAgger checkpoint, newest stage last."""
+    """Every behaviour-cloning / DAgger checkpoint from the imitation folder, newest stage last.
+
+    Empty if that folder is not there: those checkpoints use the 100 Hz stacked-frame convention
+    and belong to the earlier study, so the fusion pipeline does not need them.
+    """
+    if ckpt_dir is None:
+        if BC_DIR is None:
+            return []
+        ckpt_dir = BC_DIR / "checkpoints"
     out = []
-    for p in sorted(Path(ckpt_dir or (BC_DIR / "checkpoints")).glob("*.npz")):
+    for p in sorted(Path(ckpt_dir).glob("*.npz")):
         c = il.BCPolicy(p)
         c.label = p.stem
         out.append(c)

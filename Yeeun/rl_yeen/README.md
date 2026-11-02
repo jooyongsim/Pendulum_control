@@ -3,7 +3,7 @@
 회전형 역진자(STEVAL-EDUKIT01)의 동정 모델 위에서 **SAC**를 학습시키되,
 **보상 함수의 항을 하나씩 바꿔가며** 무엇이 실제로 성능을 만드는지 측정한다.
 
-앞선 연구 [`behavior_cloning_yeen/`](../behavior_cloning_yeen) 의 결론에서 출발한다.
+앞선 연구 [`behavior_cloning_yeen/`](../../behavior_cloning_yeen) 의 결론에서 출발한다.
 
 | 모방학습에서 남은 문제 | 원인 | 강화학습의 수단 |
 |---|---|---|
@@ -60,6 +60,8 @@ r = up(θ) − k_arm·(φ/140°)² − k_eff·a²        실패로 종료되면 
 모터 제약(최소 구동 속도 `SPEED_MIN`, 최대 속도 `SPEED_MAX`)을 **환경 안에 넣었다.**
 빼고 학습하면 실기가 실행할 수 없는 명령을 배운다.
 
+`simulator/` 는 이 폴더에서 위로 올라가며 찾는다(최대 5단계). 폴더를 옮겨도 된다.
+
 ---
 
 ## 평가 규칙 — 모방학습에서 배운 두 가지
@@ -67,7 +69,7 @@ r = up(θ) − k_arm·(φ/140°)² − k_eff·a²        실패로 종료되면 
 **1. 모든 에이전트를 같은 보상으로 채점한다.**
 
 ```powershell
-python rl_yeen/eval_rl.py --score full
+python Yeeun/rl_yeen/eval_rl.py --score full
 ```
 
 자기가 학습한 보상으로 잰 리턴은 측정이 아니라 **자기 평가**다.
@@ -102,26 +104,31 @@ python rl_yeen/eval_rl.py --score full
 
 ## 실행
 
+저장소 루트에서 실행한다.
+
 ```powershell
 conda activate control2026
-
-# 보상 5개 전부 학습 (balance, 각 30,000 스텝 — CPU 로 전체 20~25분)
-python rl_yeen/train_sac.py --sweep --task balance
-
-# 같은 잣대로 채점
-python rl_yeen/eval_rl.py --task balance --score full
-
-# 모델 오차까지 (b ±20%, 마찰 2배)
-python rl_yeen/eval_rl.py --task balance --suite robust
-
-# 가장 좋았던 보상으로 swing-up (200,000 스텝 — CPU 로 20~40분)
-python rl_yeen/train_sac.py --task swingup --reward full --steps 200000
+$env:PYTHONPATH = "Yeeun/rl_yeen"
 ```
 
-`PYTHONPATH` 를 이 폴더로 잡아야 `rl_common` 을 찾는다.
+```powershell
+# 보상 5개 전부 학습 (balance, 각 30,000 스텝 — CPU 로 전체 20~25분)
+python Yeeun/rl_yeen/train_sac.py --sweep --task balance
+```
 
 ```powershell
-$env:PYTHONPATH = "rl_yeen"
+# 같은 잣대로 채점
+python Yeeun/rl_yeen/eval_rl.py --task balance --score full
+```
+
+```powershell
+# 모델 오차까지 (b ±20%, 마찰 2배)
+python Yeeun/rl_yeen/eval_rl.py --task balance --suite robust
+```
+
+```powershell
+# 가장 좋았던 보상으로 swing-up (200,000 스텝 — CPU 로 20~40분)
+python Yeeun/rl_yeen/train_sac.py --task swingup --reward full --steps 200000
 ```
 
 ---
@@ -138,6 +145,12 @@ $env:PYTHONPATH = "rl_yeen"
   실기 호스트에 torch 를 깔 필요가 없다. `check_numpy_matches_torch()` 가 내보내기를 검증한다.
 - **`NumpyActor.as_rig_controller()`** — 같은 정책을 `rotary_model.Loop` 에 그대로 꽂아
   100 Hz · 엔코더 양자화 · 4 ms 지연 조건에서 돌릴 수 있다 (sim-to-real 점검).
+
+## 이어지는 연구
+
+- [`Yeeun/pipeline_yeen/`](../pipeline_yeen) — 모방학습과 강화학습의 **융합**.
+  BC → DAgger → SAC fine-tune 을 하나의 정책으로 잇는다.
+  여기서 다룬 보상(`full`)이 그 fine-tune 단계의 보상이다.
 
 ## 참고
 
