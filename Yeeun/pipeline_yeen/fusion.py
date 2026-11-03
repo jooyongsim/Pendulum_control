@@ -168,9 +168,22 @@ def bc_fit(actor, data, epochs=60, lr=1e-3, batch=512, seed=0, val_frac=0.1, qui
 
 def dagger(actor, data, task="swingup", iters=3, episodes=20, beta0=0.0, beta_decay=0.5,
            epochs=40, seed=7, quiet=False):
-    """Student drives, teacher labels, dataset grows, policy refits. Returns (data, log)."""
+    """Student drives, teacher labels, dataset grows, policy refits.
+
+    The actor is left holding the BEST round's weights, not the last round's -- iteration 0 (the
+    plain clone) included. Returns (data, log); log[i]["chosen"] marks the round handed on.
+    """
     _, _, ts = _torch()
-    log = []
+    log, best = [], None
+
+    # iteration 0: the plain clone, before any of the student's own states are added. It is a
+    # candidate like the rest -- the earlier study showed DAgger can make a policy WORSE when
+    # the seed is weak, and handing a degraded policy to SAC wastes the whole warm start.
+    ev0 = rl.evaluate(lambda o_: actor.act(o_, True), task, "full")
+    best = (ev0["ret"], 0, {k: v.detach().clone() for k, v in actor.state_dict().items()}, ev0)
+    if not quiet:
+        print(f"    iter 0 (BC only): ret {ev0['ret']:8.1f}  hold2 {ev0['hold2']:5.1f}%")
+
     for it in range(1, iters + 1):
         beta = beta0 * (beta_decay ** (it - 1))
         student = lambda o_: actor.act(o_, False)        # noqa: E731
@@ -186,11 +199,28 @@ def dagger(actor, data, task="swingup", iters=3, episodes=20, beta0=0.0, beta_de
         log.append(dict(iter=it, beta=beta, transitions=data["stats"]["transitions"],
                         val=h[-1]["val"], **{k: ev[k] for k in
                         ("ret", "hold10", "hold2", "bias_deg", "arm_max_deg", "failures")}))
+        if ev["ret"] > best[0]:
+            best = (ev["ret"], it, {k: v.detach().clone() for k, v in actor.state_dict().items()},
+                    ev)
         if not quiet:
             c = log[-1]
             print(f"      -> eval ret {c['ret']:8.1f}  hold2 {c['hold2']:5.1f}%"
                   f"  bias {c['bias_deg']:+6.2f}deg  arm {c['arm_max_deg']:6.1f}deg"
-                  f"  fail {c['failures']}")
+                  f"  fail {c['failures']}"
+                  + ("   <- best so far" if best[1] == it else ""))
+
+    # Hand SAC the best iteration, not the last one. The dataset still grows monotonically, so
+    # `data` is every state ever labelled -- the replay buffer and the BC term want all of it.
+    # Only the policy weights are rolled back.
+    actor.load_state_dict(best[2])
+    if not quiet:
+        print(f"    -> handing SAC iter {best[1]} (ret {best[0]:.1f}), "
+              f"{'the plain clone' if best[1] == 0 else 'the best DAgger round'}")
+    log.insert(0, dict(iter=0, beta=float("nan"), transitions=0, val=float("nan"),
+                       **{k: ev0[k] for k in ("ret", "hold10", "hold2", "bias_deg",
+                                              "arm_max_deg", "failures")}))
+    for row in log:
+        row["chosen"] = (row["iter"] == best[1])
     return data, log
 
 
@@ -388,8 +418,9 @@ def run(task="swingup", demo_episodes=40, bc_epochs=60, dagger_iters=3, dagger_e
         print(f"\n=== 3) DAgger ({dagger_iters} x {dagger_episodes} episodes) " + "-" * 14)
         data, dlog = dagger(actor, data, task, iters=dagger_iters, episodes=dagger_episodes,
                             epochs=max(20, bc_epochs // 2), seed=seed + 7, quiet=quiet)
-        rep = dict(stage="dagger", task=task, iters=dagger_iters, demos=int(len(data["obs"])),
-                   hidden=list(hidden), curve=dlog, train_s=0.0)
+        chosen = next(r["iter"] for r in dlog if r["chosen"])
+        rep = dict(stage="dagger", task=task, iters=dagger_iters, chosen_iter=chosen,
+                   demos=int(len(data["obs"])), hidden=list(hidden), curve=dlog, train_s=0.0)
         name = f"dagger_{task}"
         save(actor, name, rep)
         stages[name] = {k: v.detach().clone() for k, v in actor.state_dict().items()}
