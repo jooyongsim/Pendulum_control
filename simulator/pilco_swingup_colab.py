@@ -1,0 +1,321 @@
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %% [markdown]
+# # PILCO — 적은 시행으로 회전형 진자 swing-up 배우기 (Deisenroth & Rasmussen, ICML 2011)
+#
+# **PILCO (Probabilistic Inference for Learning COntrol)** 는 *모델 기반* 정책 탐색 방법입니다.
+# SAC·PPO 가 수십만 스텝의 시행착오가 필요한 것과 달리, PILCO 는 **수 회 ~ 십여 회의 시행 (수십 초의 경험)** 으로
+# swing-up 을 배우는 것을 목표로 합니다. 그래서 실제 장비에 직접 적용할 수 있습니다.
+#
+# | 단계 (논문 Alg. 1) | 이 노트북 |
+# |---|---|
+# | 1. 무작위 행동으로 데이터 수집 | 3 절 |
+# | 3. **GP 동역학 모델** 학습 (Sec. 2.1) | `pilco_core.GPModel` |
+# | 6. **모멘트 매칭** 으로 상태 분포 $p(x_1),\dots,p(x_T)$ 예측, 기대 비용 $J$ (Sec. 2.2) | `pilco_core.propagate`, `Cost` |
+# | 7–8. **해석적 기울기** $dJ/d\theta$ 로 정책 개선 (Sec. 2.3) | `pilco_core.optimize_policy` |
+# | 11. 정책을 시스템에 적용 → 데이터 추가 → 반복 | 4 절 |
+#
+# 이 노트북은 **시뮬레이터 (장비 동정 모델)** 에서 PILCO 를 돌립니다. 같은 `pilco_core.py` 를 쓰는 실제 장비용 스크립트는
+# `swing-up/swingup_pilco_control.py` 입니다.
+#
+# > Colab: `pilco_core.py` 가 같은 폴더에 없으면 GitHub 저장소에서 내려받습니다 (저장소에 push 되어 있어야 함).
+# > 직접 올려도 됩니다 (왼쪽 파일 패널 → 업로드).
+
+# %% [markdown]
+# ## 0. 설정
+#
+# | 변수 | 뜻 |
+# |---|---|
+# | `DT` | 제어 주기 (정책은 이 간격으로 행동을 정하고 유지). PILCO 는 0.05–0.1 s 를 씀 |
+# | `HORIZON` | 계획 길이 = 한 시행 길이 [s] |
+# | `N_TRIALS` | PILCO 반복 횟수 (= 실제 시스템에서의 시행 횟수) |
+# | `N_BASIS` | RBF 정책의 기저 함수 수 (논문 cart-pole: 50) |
+# | `GP_MAX_POINTS` | GP 에 쓰는 최대 데이터 수 (계산량 ∝ n²). 넘으면 최근 데이터 + 무작위 일부 |
+# | `POLICY_ITERS` | 정책 최적화 반복 수 (매 시행) |
+# | `SIGMA_C` | 비용 폭 (논문 Eq. 25 의 $\sigma_c$). 작을수록 직립 근처만 보상 |
+
+# %%
+import math
+import os
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+import numpy as np
+import matplotlib
+
+IN_NOTEBOOK = "ipykernel" in sys.modules
+if not IN_NOTEBOOK:
+    matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+QUICK = os.environ.get("PILCO_QUICK") == "1"       # 동작 확인용 짧은 실행
+
+SEED = 0
+DT = 0.05
+HORIZON = 4.0                                      # 3.0 에서는 '위를 계속 돌아 넘어가는' 국소 최적에 빠졌음 (4 절 참고)
+N_INIT = 1                                         # 무작위 행동 시행 수
+N_TRIALS = 2 if QUICK else 15
+N_BASIS = 20 if QUICK else 50
+GP_MAX_POINTS = 120 if QUICK else 250
+GP_ITERS = 40 if QUICK else 100
+POLICY_ITERS = 8 if QUICK else 150
+SIGMA_C = 0.5
+
+try:
+    HERE = Path(__file__).resolve().parent
+except NameError:
+    HERE = Path.cwd()
+sys.path.insert(0, str(HERE))
+if not (HERE / "pilco_core.py").exists():
+    urllib.request.urlretrieve("https://raw.githubusercontent.com/jooyongsim/Pendulum_control/main/simulator/pilco_core.py",
+                               HERE / "pilco_core.py")
+import pilco_core as pc                            # noqa: E402
+import torch                                       # noqa: E402
+
+OUT_DIR = HERE / "pilco_results"
+OUT_DIR.mkdir(exist_ok=True)
+H = int(round(HORIZON / DT))
+np.random.seed(SEED); torch.manual_seed(SEED)
+print("torch", torch.__version__, "| horizon", H, "steps | output ->", OUT_DIR, "| QUICK" if QUICK else "")
+
+
+def show():
+    plt.show() if IN_NOTEBOOK else plt.close("all")
+
+# %% [markdown]
+# ## 1. 시뮬레이터 — 장비 동정 모델 (PILCO 는 이 식을 모릅니다)
+# $$
+# \ddot\theta = \omega_n^2\sin\theta + b\cos\theta\,\ddot\phi + \sin\theta\cos\theta\,\dot\phi^2 - 2\zeta\omega_n\dot\theta - F_c\,\mathrm{sgn}(\dot\theta),
+# \qquad u = \ddot\phi
+# $$
+# $\omega_n$ = 7.499 rad/s, $\zeta$ = 0.0117, $b$ = 0.730, $F_c$ = 0.556 rad/s². 펌웨어 제약: $|u| \le 47.1$ rad/s²,
+# $|\dot\phi| \le 7.85$ rad/s, 30 pps 미만이면 모터 정지. 팔 ±140° 를 넘으면 시행 종료.
+#
+# PILCO 의 상태는 $x = [\dot\theta, \phi, \dot\phi, \theta]$ ($\theta$: **직립 = 0**, 매달림 = $\pm\pi$) 입니다.
+# **PILCO 는 이 운동방정식을 쓰지 않습니다.** 시뮬레이터는 "실제 장비" 역할만 하고, PILCO 는 관측한 데이터로만 GP 모델을 배웁니다.
+
+# %%
+WN, ZETA, B_U = 7.499, 0.01172, 0.730
+A_G, C_D = WN ** 2, 2 * ZETA * WN
+F_C = math.radians(2.705) * WN ** 2 * (2 * math.pi / WN) / 4.0
+STEP_RAD = 2 * math.pi / 3200
+U_MAX, V_MAX, V_MIN = 24000 * STEP_RAD, 4000 * STEP_RAD, 30 * STEP_RAD
+ARM_LIM = math.radians(140)
+L_ROD = 3 * 9.81 / (2 * WN ** 2)
+
+
+def plant_step(s, u, dt=DT, h=0.001):
+    """s = [theta, theta', phi, v] (v: firmware target speed); RK4 at 1 ms, u held for dt"""
+    def f(s):
+        th, w, phi, v = s
+        on = abs(v) >= V_MIN
+        acc, phid = (u, v) if on else (0.0, 0.0)
+        dw = A_G * math.sin(th) + B_U * math.cos(th) * acc + math.sin(th) * math.cos(th) * phid ** 2 \
+            - C_D * w - F_C * math.tanh(w / 0.01)
+        return np.array([w, dw, phid, u])
+    s = np.array(s, float)
+    for _ in range(int(round(dt / h))):
+        k1 = f(s); k2 = f(s + h / 2 * k1); k3 = f(s + h / 2 * k2); k4 = f(s + h * k3)
+        s = s + h / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+        s[3] = max(-V_MAX, min(V_MAX, s[3]))
+    return s
+
+
+def run_trial(policy_fn, seconds=HORIZON, rng=None, theta0=math.pi):
+    """'real system' trial from hanging. Returns PILCO states X (T+1, 4) = [theta', phi, phi', theta], actions U (T)"""
+    rng = rng or np.random.default_rng()
+    s = np.array([theta0 + rng.uniform(-0.05, 0.05), rng.uniform(-0.1, 0.1), 0.0, 0.0])
+    obs = lambda s: np.array([s[1], s[2], s[3] if abs(s[3]) >= V_MIN else 0.0, s[0]])
+    X, U = [obs(s)], []
+    for _ in range(int(round(seconds / DT))):
+        u = float(np.clip(policy_fn(X[-1]), -U_MAX, U_MAX))
+        s = plant_step(s, u)
+        U.append(u); X.append(obs(s))
+        if abs(s[2]) > ARM_LIM:
+            break
+    X = np.array(X)
+    X[:, 3] = np.unwrap(X[:, 3])                   # theta continuous (sin/cos handle the wrap)
+    return X, np.array(U)
+
+
+def random_policy(rng):
+    """PILCO 초기 시행: 무작위 행동 (팔이 한계로 가지 않도록 약한 중심 복원만 더함)"""
+    def pi(x):
+        return rng.uniform(-0.6, 0.6) * U_MAX - 6.0 * x[1] - 3.0 * x[2]
+    return pi
+
+# %% [markdown]
+# ## 2. 비용 함수와 초기 상태 분포
+# **포화 비용** (논문 Eq. 25) — 막대 끝이 직립 위치에서 얼마나 먼지 + 팔이 가운데서 얼마나 먼지:
+# $$
+# c(x) = 1 - \exp\!\Big(-\tfrac12 (y - y^*)^\top W (y - y^*)\Big),\quad y = [\phi,\ \sin\theta,\ \cos\theta],\ y^* = [0, 0, 1]
+# $$
+# $(\sin\theta)^2 + (\cos\theta - 1)^2 = 2(1 - \cos\theta)$ 는 막대 끝과 직립 위치 사이 거리의 제곱 (막대 길이 단위) 입니다.
+# 비용의 기댓값은 가우시안 분포에 대해 **닫힌 형태로** 계산합니다. 상한이 없는 벌점 (예: 팔 각도의 2차 항) 을 더하면, 모델이 불확실할 때 그 벌점이 커져 "아예 움직이지 않는" 정책이 최적이 되므로 쓰지 않습니다 (논문도 포화 비용만 씀).
+#
+# 초기 상태: 매달린 채 거의 정지 $x_0 \sim \mathcal N(\mu_0, \Sigma_0)$, $\mu_0 = [0, 0, 0, \pi]$.
+
+# %%
+cost = pc.Cost(sigma_c=SIGMA_C)
+m0 = np.array([0.0, 0.0, 0.0, math.pi])
+S0 = np.diag([0.05, 0.05, 0.01, 0.03]) ** 2
+
+# %% [markdown]
+# ## 3. 초기 데이터: 무작위 행동 시행
+# 논문 Alg. 1 의 1 단계. 정책 없이 무작위 행동으로 한 번 움직여 첫 GP 모델의 데이터를 얻습니다.
+
+# %%
+rng = np.random.default_rng(SEED)
+X_data, Y_data, trials = [], [], []
+for k in range(N_INIT):
+    Xt, Ut = run_trial(random_policy(rng), rng=rng)
+    inp, tgt = pc.transitions(Xt, Ut)
+    X_data.append(inp); Y_data.append(tgt)
+    trials.append(dict(X=Xt, U=Ut, kind="random"))
+    print(f"random trial {k + 1}: {len(Ut)} steps, arm max {np.degrees(np.abs(Xt[:, 1]).max()):.0f} deg")
+
+# %% [markdown]
+# ## 4. PILCO 반복
+# 매 반복마다:
+# 1. 지금까지의 **모든 데이터로 GP 학습** (하이퍼파라미터: evidence 최대화, 이전 값에서 이어서 학습)
+# 2. **모멘트 매칭으로 `HORIZON` 초 앞까지 상태 분포 예측** → 기대 비용 $J = \sum_t \mathbb E[c(x_t)]$
+# 3. 자동 미분으로 $dJ/d\theta$ 를 구해 **정책 개선** (Adam; 원 논문은 CG/L-BFGS)
+# 4. 개선된 정책으로 **시뮬레이터에서 시행 1 회** → 데이터 추가
+#
+# 출력 읽는 법 (`HORIZON` = 4 s 이면 81 스텝):
+#
+# | 항목 | 뜻 |
+# |---|---|
+# | `J pred` / `J real` | 모델이 예측한 기대 비용 / 실제 시행의 비용 (스텝 합, 낮을수록 좋음. 매달린 채면 ≈ 스텝 수). 두 값이 가까우면 모델이 정확 |
+# | `first upright` | 처음 직립 ±10° 에 들어간 시각 |
+# | `upright last 1 s` | 마지막 1 초 동안 직립 ±10° 안에 있던 비율 |
+# | `turns` | 시행 동안 막대가 돈 바퀴 수. **붙잡아 균형을 잡으면 ≈ 0.5** (매달림 → 직립), 1.5 이상이면 위를 **돌아 넘어간 것** |
+#
+# > **이전 실행 (HORIZON = 3 s, 15 회) 결과:** 3 번째 시행부터 1.6–1.8 s 에 올라가고 GP 예측도 실제와 거의 일치했지만,
+# > 정책이 **직립을 통과해 계속 도는** 국소 최적에 머물렀습니다 (3 s 안에 2.4 바퀴, `upright last 1 s` 는 통과 순간이 섞여 10–70%).
+# > 3 s 안에서는 "여러 번 통과하기" 도 비용을 꽤 줄이기 때문으로 보고, 계획 길이를 4 s 로 늘렸습니다 (논문 cart-pole 도 약 4 s).
+
+# %%
+gp = pc.GPModel(max_points=GP_MAX_POINTS, seed=SEED)
+policy = pc.RBFPolicy(n_basis=N_BASIS, u_max=U_MAX, seed=SEED)
+history = []
+
+
+def trial_cost(X):
+    c = [cost.point(x) for x in X]
+    return float(np.sum(c) + (H + 1 - len(c)) * 1.0)       # 일찍 끝나면 (팔 한계) 남은 스텝은 최대 비용
+
+
+def plot_prediction(Xt, ms, Ss, title, fname):
+    """PILCO 의 예측 분포 (평균 ± 2σ) 와 실제 시행 비교"""
+    t_pred = np.arange(len(ms)) * DT
+    t_real = np.arange(len(Xt)) * DT
+    fig, ax = plt.subplots(1, 4, figsize=(16, 3.2))
+    for a_, i, name, sc in zip(ax, (3, 0, 1, 2), ("theta [deg]", "theta' [rad/s]", "phi [deg]", "phi' [rad/s]"),
+                               (180 / math.pi, 1, 180 / math.pi, 1)):
+        mu, sd = ms[:, i] * sc, 2 * np.sqrt(np.maximum(Ss[:, i, i], 0)) * sc
+        a_.fill_between(t_pred, mu - sd, mu + sd, color="#2774B8", alpha=.2, label="PILCO prediction ±2σ")
+        a_.plot(t_pred, mu, color="#2774B8")
+        a_.plot(t_real, Xt[:, i] * sc, color="#E97820", lw=2, label="actual trial")
+        a_.set_title(name); a_.set_xlabel("t [s]"); a_.grid(alpha=.3)
+    ax[0].legend(fontsize=7); fig.suptitle(title)
+    plt.tight_layout(); fig.savefig(OUT_DIR / f"{fname}.png", dpi=100); show()
+
+
+t_start = time.time()
+for it in range(1, N_TRIALS + 1):
+    t0 = time.time()
+    gp.fit(np.concatenate(X_data), np.concatenate(Y_data), iters=GP_ITERS)
+    J_pred = pc.optimize_policy(policy, gp, cost, m0, S0, H, iters=POLICY_ITERS, verbose=False)
+    pi = pc.policy_numpy(policy.numpy_params())
+    Xt, Ut = run_trial(pi, rng=rng)
+    inp, tgt = pc.transitions(Xt, Ut)
+    X_data.append(inp); Y_data.append(tgt)
+    trials.append(dict(X=Xt, U=Ut, kind="pilco"))
+    th = np.degrees(pc.wrap(Xt[:, 3]))
+    up = np.abs(th) < 10
+    t_up = np.argmax(up) * DT if up.any() else None
+    turns = abs(Xt[-1, 3] - Xt[0, 3]) / (2 * math.pi)                # 돈 바퀴 수 (균형이면 ≈ 0.5)
+    rec = dict(trial=it, J_pred=J_pred, J_real=trial_cost(Xt), t_up=t_up, up_last1s=float(up[-20:].mean()),
+               turns=float(turns),
+               arm_max=float(np.degrees(np.abs(Xt[:, 1]).max())), n_data=int(sum(len(x) for x in X_data)),
+               time=time.time() - t0)
+    history.append(rec)
+    np.savez(OUT_DIR / f"pilco_policy_trial{it:02d}.npz", **policy.numpy_params(), dt=DT)
+    print(f"trial {it:2d} | J pred {J_pred:6.2f}  J real {rec['J_real']:6.2f} | first upright "
+          f"{'--' if t_up is None else f'{t_up:.2f} s'} | upright last 1 s {100 * rec['up_last1s']:3.0f}% | "
+          f"turns {turns:3.1f} | arm max {rec['arm_max']:4.0f} deg | data {rec['n_data']:4d} | {rec['time']:5.1f} s", flush=True)
+    if it in (1, N_TRIALS) or it % 5 == 0:
+        with torch.no_grad():
+            ms, Ss, _ = pc.predict(policy, gp, cost, m0, S0, H)
+        plot_prediction(Xt, ms.numpy(), Ss.numpy(), f"trial {it}: prediction vs actual", f"prediction_trial{it:02d}")
+print(f"total {time.time() - t_start:.0f} s, real interaction {sum(len(t['U']) for t in trials) * DT:.1f} s")
+
+# %% [markdown]
+# ## 5. 학습 곡선
+# 가로축 = 시행 횟수 (실제 시스템과의 상호작용). PILCO 의 핵심은 **이 축이 수십 회가 아니라 십여 회** 라는 점입니다.
+
+# %%
+fig, ax = plt.subplots(1, 2, figsize=(11, 3.5))
+k = [h["trial"] for h in history]
+ax[0].plot(k, [h["J_real"] for h in history], "o-", label="actual trial cost")
+ax[0].plot(k, [h["J_pred"] for h in history], "s--", label="predicted (model)")
+ax[0].set_xlabel("PILCO trial"); ax[0].set_ylabel(f"sum of cost over {HORIZON:.0f} s"); ax[0].legend(); ax[0].grid(alpha=.3)
+ax[1].plot(k, [100 * h["up_last1s"] for h in history], "o-", color="#2E8B57")
+ax[1].set_xlabel("PILCO trial"); ax[1].set_ylabel("upright in the last 1 s [%]"); ax[1].grid(alpha=.3)
+plt.tight_layout(); fig.savefig(OUT_DIR / "learning_curve.png", dpi=100); show()
+
+# %% [markdown]
+# ## 6. 최종 정책 확인 — 더 긴 시간 (8 s) 동안 유지하는지
+# 학습은 `HORIZON` 초 동안의 비용만 봤기 때문에, 그 뒤에도 균형을 유지하는지 따로 확인합니다.
+
+# %%
+pi = pc.policy_numpy(policy.numpy_params())
+fig, ax = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+for th0 in (math.pi, math.pi - 0.05, math.pi + 0.1):
+    Xt, Ut = run_trial(pi, seconds=8.0, rng=np.random.default_rng(1), theta0=th0)
+    t = np.arange(len(Xt)) * DT
+    ax[0].plot(t, np.degrees(pc.wrap(Xt[:, 3])), label=f"theta0 = {math.degrees(th0):.0f} deg")
+    ax[1].plot(t, np.degrees(Xt[:, 1])); ax[2].step(t[:-1], Ut, where="post", lw=1)
+ax[0].set_ylabel("theta from up [deg]"); ax[0].legend(fontsize=8)
+ax[1].set_ylabel("arm phi [deg]"); [ax[1].axhline(s * 140, color="r", ls=":") for s in (1, -1)]
+ax[2].set_ylabel("u [rad/s^2]"); ax[2].set_xlabel("t [s]")
+for a_ in ax:
+    a_.grid(alpha=.3)
+ax[0].set_title("final PILCO policy, 8 s from hanging (simulator)")
+plt.tight_layout(); fig.savefig(OUT_DIR / "final_policy.png", dpi=100); show()
+
+# %% [markdown]
+# ## 7. 저장
+# - `pilco_results/pilco_policy.npz` : 최종 정책 (RBF 중심 `c`, 가중치 `w`, 길이 척도 `ell`, `u_max`, 제어 주기 `dt`)
+# - `pilco_results/pilco_data.npz` : 모든 시행 데이터 (실제 장비 학습을 이 데이터에서 이어 갈 때도 쓸 수 있음)
+#
+# **실시간 시뮬레이터로 보기** (저장소 `Pendulum_control` 폴더에서):
+# ```
+# python simulator/rl_rotary_realtime.py --model simulator/pilco_results/pilco_policy.npz
+# ```
+# **실제 장비에서 실행**:
+# ```
+# python swing-up/swingup_pilco_control.py --run simulator/pilco_results/pilco_policy.npz
+# ```
+
+# %%
+final = OUT_DIR / ("pilco_policy_quick.npz" if QUICK else "pilco_policy.npz")
+np.savez(final, **policy.numpy_params(), dt=DT)
+np.savez(OUT_DIR / "pilco_data.npz", X=np.concatenate(X_data), Y=np.concatenate(Y_data))
+print("saved", final)
+if "google.colab" in sys.modules:
+    from google.colab import files
+    files.download(str(final))

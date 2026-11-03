@@ -17,6 +17,9 @@ Keys   left / right : kick the pendulum (theta' -/+ 1 rad/s)
 
     python simulator/rl_rotary_realtime.py
     python simulator/rl_rotary_realtime.py --check     # no window: numbers only
+    python simulator/rl_rotary_realtime.py --model simulator/rl_models/rotary_bc_colab.pt
+                                  # any tanh(net(obs)) policy (SAC, BC, DAgger, TD3) as the swing-up policy
+    python simulator/rl_rotary_realtime.py --model simulator/pilco_results/pilco_policy.npz     # PILCO (.npz)
 """
 import collections
 import io
@@ -88,14 +91,30 @@ class Policy:
         return float(np.tanh(h[0]))
 
 
+class PilcoPolicy:
+    """PILCO RBF policy (.npz from pilco_swingup_colab.py / swingup_pilco_control.py), same interface as Policy"""
+
+    def __init__(self, path):
+        P = np.load(path)
+        self.c, self.w, self.ell, self.umax = P["c"], P["w"], P["ell"], float(P["u_max"])
+        self.hold = max(1, int(round(float(P["dt"]) * rm.CONTROL_HZ))) if "dt" in P else 5
+
+    def __call__(self, obs):
+        c, s, w, phi, phid = obs
+        p = np.array([w, phi, phid, s, c])
+        u = self.umax * math.sin(float(self.w @ np.exp(-0.5 * (((p - self.c) / self.ell) ** 2).sum(1))))
+        return u / rm.ACCEL_MAX
+
+
 class RLController:
     """rotary_model.Loop calls this at 100 Hz with z = [theta, theta', phi, phi'] (as the sensor sees them)."""
 
     def __init__(self, policy):
         self.policy, self.n, self.u = policy, 0, 0.0
+        self.hold = getattr(policy, "hold", HOLD)
 
     def __call__(self, z, t):
-        if self.n % HOLD == 0:
+        if self.n % self.hold == 0:
             th, w, phi, phid = z
             self.u = self.policy([math.cos(th), math.sin(th), w, phi, phid]) * rm.ACCEL_MAX
         self.n += 1
@@ -107,7 +126,7 @@ def load_policies():
     if missing:
         sys.exit("model not found:\n  " + "\n  ".join(missing) +
                  "\n-> run rl_tutorial_cartpole_rotary (.py or .ipynb) once to train and save them")
-    return {k: Policy(p) for k, p in MODELS.items()}
+    return {k: (PilcoPolicy(p) if p.suffix == ".npz" else Policy(p)) for k, p in MODELS.items()}
 
 
 def make(policy, mode, realistic=True):
@@ -175,7 +194,7 @@ def run(policies):
     ax_u.set(ylabel="u [rad/s^2]", xlabel="t [s]", ylim=(-1.1 * rm.ACCEL_MAX, 1.1 * rm.ACCEL_MAX))
     for a in (ax_th, ax_ph, ax_u):
         a.grid(alpha=.3)
-    fig.text(0.47, 0.935, f"SAC policy (rl_models/)  |u|<={rm.ACCEL_MAX:.0f} rad/s^2  |phi'|<={rm.SPEED_MAX:.1f} rad/s  "
+    fig.text(0.47, 0.935, f"{MODELS['swing-up'].name}  |u|<={rm.ACCEL_MAX:.0f} rad/s^2  |phi'|<={rm.SPEED_MAX:.1f} rad/s  "
              f"policy 50 Hz on a 100 Hz loop  (green band: upright +-10 deg)", fontsize=7.5, family="monospace")
 
     def reset(realistic):
@@ -229,5 +248,7 @@ def run(policies):
 
 
 if __name__ == "__main__":
+    if "--model" in sys.argv:                        # replace the swing-up policy (key m still switches to SAC balance)
+        MODELS["swing-up"] = Path(sys.argv[sys.argv.index("--model") + 1]).resolve()
     pols = load_policies()
     check(pols) if "--check" in sys.argv else run(pols)
