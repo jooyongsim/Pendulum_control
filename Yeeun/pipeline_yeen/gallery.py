@@ -218,15 +218,20 @@ TITLES = {
 
 
 # ---------------------------------------------------------------- video
-def render(entries, out_path, task="swingup", seconds=VIDEO_S, stride=STRIDE, fps=25,
-           title="", dpi=80, **plant):
-    """Pendulum panels over a shared theta(t) / phi(t) plot, written as mp4 (ffmpeg) or gif.
+def render(entries, out_path=None, task="swingup", seconds=VIDEO_S, stride=STRIDE, fps=25,
+           title="", dpi=80, show=False, **plant):
+    """Pendulum panels over a shared theta(t) / phi(t) plot.
 
     One panel per controller, same start, same plant: anything that differs between panels is
     the controller and nothing else.
+
+    show=False writes a file (mp4 via ffmpeg, else gif) and opens no window -- that is what a
+    Colab cell and a batch run need. show=True plays it in a window instead, which is what
+    running a .py by hand usually feels like it should do.
     """
     import matplotlib
-    matplotlib.use("Agg")
+    if not show:
+        matplotlib.use("Agg")           # no display: required on Colab, and faster everywhere
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
     from matplotlib.patches import Wedge
@@ -321,7 +326,13 @@ def render(entries, out_path, task="swingup", seconds=VIDEO_S, stride=STRIDE, fp
             out += [rod, bob, txt, lt, lp, hd]
         return out
 
-    ani = FuncAnimation(fig, frame, frames=len(idx), interval=1000 / fps, blit=True)
+    ani = FuncAnimation(fig, frame, frames=len(idx), interval=1000 / fps, blit=True,
+                        repeat=show)
+    if show:
+        print("    window open -- close it to continue")
+        plt.show()                      # blocks until the window is closed
+        return None, {r["label"]: r["score"] for r in runs}
+
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.suffix == ".mp4":
@@ -356,17 +367,30 @@ def main():
                     choices=list(GROUPS) + ["all"], nargs="+")
     ap.add_argument("--task", default="swingup", choices=list(arena.TASKS))
     ap.add_argument("--suite", default="clean", choices=list(arena.SUITES))
-    ap.add_argument("--sweep-dir", default=None,
-                    help="folder of the data-size BC checkpoints (bc_*.npz)")
+    ap.add_argument("--sweep-dir", default=(str(ROOT / "sweep") if (ROOT / "sweep").is_dir()
+                                            else None),
+                    help="folder of the data-size BC checkpoints (bc_*.npz); "
+                         "defaults to ./sweep when it exists")
     ap.add_argument("--ckpt-dir", default=None, help="fusion checkpoints")
     ap.add_argument("--out", default=str(OUT_DIR))
-    ap.add_argument("--video", action="store_true")
+    ap.add_argument("--video", action="store_true", help="write a video file")
+    ap.add_argument("--show", action="store_true",
+                    help="play it in a window instead of writing a file "
+                         "(one window per group; close it to continue)")
     ap.add_argument("--table", action="store_true")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--seconds", type=float, default=VIDEO_S)
     ap.add_argument("--fps", type=int, default=25)
     ap.add_argument("--csv", default=None)
     a = ap.parse_args()
+
+    # Run with no arguments -- the Run button in an editor, a double-click -- and the useful
+    # thing is a window with the four approaches in it, not a usage message.
+    if not (a.video or a.table or a.show or a.list):
+        a.show = a.table = True
+        a.group = ["four"]
+        print("(no options given -- showing the 'four' group in a window and its numbers)")
+        print("  other options: --group <name> --show --video --table --suite robust\n")
 
     groups = list(GROUPS) if "all" in a.group else a.group
     kw = dict(sweep_dir=a.sweep_dir, ckpt_dir=a.ckpt_dir)
@@ -377,9 +401,10 @@ def main():
     for g, es in built.items():
         names = [getattr(c, "label", "?") for c in es]
         print(f"  {g:<10s} {len(es)}: {', '.join(names) if names else '(none found)'}")
-    if a.list or not (a.video or a.table):
-        if not (a.video or a.table):
-            print("\n  nothing to do -- pass --table and/or --video")
+    if a.list or not (a.video or a.table or a.show):
+        if not (a.video or a.table or a.show):
+            print("\n  nothing to do -- pass --show (a window), --video (a file)"
+                  " and/or --table (numbers)")
         return
 
     out = Path(a.out)
@@ -388,6 +413,10 @@ def main():
         if not es:
             print(f"\n--- {g}: no controllers found, skipped")
             continue
+        # the window first: scoring every agent over every start takes a while, and waiting
+        # for a table before anything appears on screen reads as "nothing is happening"
+        if a.show:
+            render(es, task=a.task, seconds=a.seconds, fps=a.fps, title=TITLES[g], show=True)
         if a.table:
             print(f"\n--- {g} " + "-" * 60)
             rows = rows_for(es, a.task, a.suite, group=g)
